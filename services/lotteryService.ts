@@ -164,37 +164,51 @@ export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult
   }
 };
 
-// Range fetch
+// Range fetch with throttling to prevent rate limits
 export const fetchResultsRange = async (gameSlug: string, startConcurso: number, endConcurso: number): Promise<PastGameResult[]> => {
-  const promises = [];
   const results: PastGameResult[] = [];
+  const concurrencyLimit = 5; // Max simultaneous requests
+  const delayMs = 50; // Small delay to be polite
 
+  // Generate list of IDs to fetch
+  const idsToFetch = [];
   for (let i = startConcurso; i <= endConcurso; i++) {
-    // Guidi API: /loteria/lotofacil/3000
-    const p = fetch(`${BASE_API_URL}/${gameSlug}/${i}`)
-      .then(res => {
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .catch(err => {
-        return null;
-      });
-    promises.push(p);
+    idsToFetch.push(i);
   }
 
-  const responses = await Promise.all(promises);
+  // Process in chunks
+  for (let i = 0; i < idsToFetch.length; i += concurrencyLimit) {
+    const chunk = idsToFetch.slice(i, i + concurrencyLimit);
+    const promises = chunk.map(id => 
+       fetch(`${BASE_API_URL}/${gameSlug}/${id}`)
+        .then(res => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .catch(() => null)
+    );
 
-  responses.forEach(data => {
+    const chunkResults = await Promise.all(promises);
+    
+    chunkResults.forEach(data => {
       if (data) {
-        const normalized = normalizeResult(data, gameSlug);
-        results.push({
-          concurso: normalized.concurso,
-          dezenas: normalized.dezenas,
-          data: normalized.data,
-          premiacoes: normalized.premiacoes
-        });
+        try {
+          const normalized = normalizeResult(data, gameSlug);
+          results.push({
+            concurso: normalized.concurso,
+            dezenas: normalized.dezenas,
+            data: normalized.data,
+            premiacoes: normalized.premiacoes
+          });
+        } catch (e) {
+          console.warn("Error normalizing data", e);
+        }
       }
-  });
+    });
+
+    // Small delay between chunks
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
   
   return results.sort((a, b) => b.concurso - a.concurso);
 };

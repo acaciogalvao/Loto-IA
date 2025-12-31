@@ -495,8 +495,8 @@ const App: React.FC = () => {
         endOfSelectedYear = latestResult.concurso;
     }
 
-    // Lógica Descendente: Começa do Fim do Ano e volta 50
-    const batchSize = 50;
+    // Lógica Descendente: Começa do Fim do Ano e volta 100
+    const batchSize = 100;
     const fetchEnd = endOfSelectedYear;
     const fetchStart = Math.max(startOfSelectedYear, fetchEnd - batchSize + 1);
     
@@ -527,7 +527,7 @@ const App: React.FC = () => {
         return;
     }
 
-    const batchSize = 50;
+    const batchSize = 100;
     const fetchStart = Math.max(startOfSelectedYear, fetchEnd - batchSize + 1);
 
     try {

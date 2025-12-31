@@ -12,48 +12,94 @@ const generateId = (): string => {
 export const saveBets = (
   gamesInput: { numbers: number[], gameNumber: number }[], 
   targetConcurso: number,
-  gameType: string = 'lotofacil' // Default para compatibilidade
+  gameType: string = 'lotofacil' 
 ): SavedBetBatch[] => {
   
   const existingBatches = getSavedBets();
   
-  // Verifica se já existe um grupo para este concurso E para este jogo
-  const existingBatchIndex = existingBatches.findIndex(b => b.targetConcurso === targetConcurso && b.gameType === gameType);
+  // 1. Preparar os novos jogos (garantir ordenação para comparação consistente)
+  const incomingGames = gamesInput.map(g => ({
+      ...g,
+      numbers: [...g.numbers].sort((a, b) => a - b)
+  }));
 
-  const newGamesToAdd: SavedGame[] = gamesInput.map((item) => ({
+  // 2. Remover duplicatas INTERNAS do input (caso o gerador tenha criado repetidos no mesmo lote)
+  const seenInInput = new Set<string>();
+  const distinctIncomingGames = incomingGames.filter(g => {
+      const signature = JSON.stringify(g.numbers);
+      if (seenInInput.has(signature)) return false;
+      seenInInput.add(signature);
+      return true;
+  });
+
+  const newGamesToAddPayload: SavedGame[] = distinctIncomingGames.map((item) => ({
     id: generateId(),
     numbers: item.numbers,
     gameNumber: item.gameNumber
   }));
+  
+  // Verifica se já existe um grupo para este concurso E para este tipo de jogo
+  const existingBatchIndex = existingBatches.findIndex(b => b.targetConcurso === targetConcurso && b.gameType === gameType);
 
   if (existingBatchIndex >= 0) {
     const currentBatch = existingBatches[existingBatchIndex];
-    const uniqueGames = newGamesToAdd.filter(newGame => 
-      !currentBatch.games.some(existingGame => 
-        JSON.stringify(existingGame.numbers) === JSON.stringify(newGame.numbers)
-      )
+    
+    // 3. Remover duplicatas contra o BANCO DE DADOS (o que já está salvo neste grupo)
+    // Cria um Set com as assinaturas dos jogos JÁ salvos para busca rápida
+    const existingSignatures = new Set(
+        currentBatch.games.map(g => JSON.stringify([...g.numbers].sort((a, b) => a - b)))
     );
 
+    const uniqueGames = newGamesToAddPayload.filter(newGame => {
+        const signature = JSON.stringify(newGame.numbers); // Já está ordenado do passo 1
+        return !existingSignatures.has(signature);
+    });
+
     if (uniqueGames.length > 0) {
+      // Adiciona apenas os únicos ao lote existente
       currentBatch.games = [...currentBatch.games, ...uniqueGames].sort((a, b) => a.gameNumber - b.gameNumber);
     }
     existingBatches[existingBatchIndex] = currentBatch;
   } else {
+    // Cria novo lote se não existir
     const newBatch: SavedBetBatch = {
       id: generateId(),
       createdAt: new Date().toLocaleDateString('pt-BR'),
       targetConcurso,
       gameType: gameType,
-      games: newGamesToAdd
+      games: newGamesToAddPayload
     };
+    // Adiciona no topo da lista
     existingBatches.unshift(newBatch);
   }
   
-  if (existingBatches.length > 30) {
-    existingBatches.pop();
+  // --- MUDANÇA: REMOVIDO LIMITE ARTIFICIAL DE 100 GRUPOS ---
+  // O armazenamento agora cresce indefinidamente até o limite físico do LocalStorage do navegador.
+  
+  try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(existingBatches));
+  } catch (e) {
+      console.error("Erro crítico: Armazenamento cheio (LocalStorage Quota Exceeded)", e);
+      alert("Atenção: O armazenamento do navegador está cheio. Não foi possível salvar novos jogos. Tente apagar jogos antigos.");
+      
+      // Fallback de emergência: Tenta salvar removendo o lote mais antigo para não perder o dado atual
+      // Isso garante que o app não quebre se o usuário atingir 5MB de dados
+      if (existingBatches.length > 1) {
+          try {
+             const emergencyBatches = [...existingBatches];
+             // Remove o último (mais antigo) até caber
+             while(emergencyBatches.length > 0) {
+                 emergencyBatches.pop();
+                 try {
+                     localStorage.setItem(STORAGE_KEY, JSON.stringify(emergencyBatches));
+                     return emergencyBatches; // Conseguiu salvar sacrificando antigos
+                 } catch(err) { continue; }
+             }
+          } catch (e2) {
+             console.error("Falha total de armazenamento", e2);
+          }
+      }
   }
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(existingBatches));
   return existingBatches;
 };
 
@@ -102,7 +148,6 @@ export const getSavedBets = (): SavedBetBatch[] => {
       };
     });
 
-    // Se houve migração de dados (IDs gerados), salva imediatamente para persistir
     if (hasChanges) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedData));
     }
@@ -115,12 +160,13 @@ export const getSavedBets = (): SavedBetBatch[] => {
 };
 
 export const syncBets = (batches: SavedBetBatch[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(batches));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(batches));
+  } catch(e) {
+    console.error("Erro ao sincronizar bets", e);
+  }
 };
 
-/**
- * Remove um lote inteiro pelo ID e atualiza o LocalStorage
- */
 export const deleteBatch = (batchId: string): SavedBetBatch[] => {
   const batches = getSavedBets();
   const updatedBatches = batches.filter(b => b.id !== batchId);
@@ -128,19 +174,15 @@ export const deleteBatch = (batchId: string): SavedBetBatch[] => {
   return updatedBatches;
 };
 
-/**
- * Remove um jogo específico de um lote e atualiza o LocalStorage
- */
 export const deleteGame = (batchId: string, gameId: string): SavedBetBatch[] => {
   const batches = getSavedBets();
   const updatedBatches = batches.map(batch => {
       if (batch.id === batchId) {
-          // Remove o jogo com o ID correspondente
           const newGames = batch.games.filter(g => g.id !== gameId);
           return { ...batch, games: newGames };
       }
       return batch;
-  }).filter(batch => batch.games.length > 0); // Remove lotes que ficaram vazios
+  }).filter(batch => batch.games.length > 0); 
 
   syncBets(updatedBatches);
   return updatedBatches;
