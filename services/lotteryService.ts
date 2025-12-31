@@ -46,8 +46,7 @@ const parsePremiacoes = (data: any, gameSlug: string): PrizeEntry[] => {
       }
     }
     
-    // Fallbacks baseados no tipo de jogo se a faixa for numérica simples (1, 2, 3...)
-    // E.g. Mega Sena faixa 1 = Sena (6 acertos)
+    // Fallbacks baseados no tipo de jogo
     if (typeof p.faixa === 'number' && !p.acertos) {
         if (gameSlug === 'lotofacil' && p.faixa <= 5) acertos = 16 - p.faixa;
         else if (gameSlug === 'megasena' && p.faixa === 1) acertos = 6;
@@ -71,16 +70,23 @@ const parsePremiacoes = (data: any, gameSlug: string): PrizeEntry[] => {
     } else {
         value = Number(rawValue);
     }
+    
+    // Campo específico da Federal - Removendo zeros a esquerda se houver
+    const bilhete = p.bilhete ? String(parseInt(String(p.bilhete), 10)) : undefined;
 
     // Include if it looks like a valid prize tier
     parsed.push({
       faixa: acertos || 0,
       ganhadores: isNaN(winners) ? 0 : winners,
-      valor: isNaN(value) ? 0 : value
+      valor: isNaN(value) ? 0 : value,
+      bilhete: bilhete
     });
   });
 
-  // Sort by highest matches first (descending)
+  // Sort by highest matches first (descending), except Federal (ascending by faixa/prize)
+  if (gameSlug === 'federal') {
+      return parsed.sort((a, b) => a.faixa - b.faixa);
+  }
   return parsed.sort((a, b) => b.faixa - a.faixa);
 };
 
@@ -94,7 +100,6 @@ const normalizeResult = (data: any, gameSlug: string): LotteryResult => {
     let dezenas = data.dezenas || data.listaDezenas || data.dezenasSorteadasOrdemSorteio || [];
     
     // Special handling for Super Sete
-    // Convert ["1", "0", ...] to IDs ["1", "10", ...]
     if (gameSlug === 'supersete' && Array.isArray(dezenas)) {
         dezenas = dezenas.map((val: string, index: number) => {
              const numVal = parseInt(val, 10);
@@ -109,6 +114,14 @@ const normalizeResult = (data: any, gameSlug: string): LotteryResult => {
     let ganhadoresMax = 0;
     if (premiacoes.length > 0) {
         ganhadoresMax = premiacoes[0].ganhadores;
+    }
+    
+    // FEDERAL: Se 'dezenas' vier vazio (comum na API para Federal), popula com os bilhetes premiados
+    if (gameSlug === 'federal' && (!dezenas || dezenas.length === 0)) {
+        dezenas = premiacoes.filter(p => p.bilhete).map(p => p.bilhete as string);
+    } else if (gameSlug === 'federal' && dezenas.length > 0) {
+        // Garante que dezenas da Federal também não tenham zeros a esquerda
+        dezenas = dezenas.map((d: string | number) => String(parseInt(String(d), 10)));
     }
 
     const nextDate = data.data_proximo_concurso || data.dataProximoConcurso || calculateNextDrawDate(dataApuracao);

@@ -39,6 +39,7 @@ export interface PrizeEntry {
   faixa: number; // 11, 12, 13, 14, 15
   ganhadores: number;
   valor: number;
+  bilhete?: string; // NOVO: Para Loteria Federal
 }
 
 export interface LotteryResult {

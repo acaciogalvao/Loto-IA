@@ -6,7 +6,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Lotofácil',
     totalNumbers: 25,
     minSelection: 15,
-    maxSelection: 25, // Aumentado para permitir selecionar TODOS os números se desejar (fechamento total)
+    maxSelection: 25, 
     defaultSelection: 15,
     cols: 5,
     color: 'purple',
@@ -29,7 +29,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Mega-Sena',
     totalNumbers: 60,
     minSelection: 6,
-    maxSelection: 20, // Aumentado para 20 (limite real de volantes especiais)
+    maxSelection: 20,
     defaultSelection: 6,
     cols: 10,
     color: 'emerald',
@@ -56,7 +56,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Quina',
     totalNumbers: 80,
     minSelection: 5,
-    maxSelection: 15, // Máximo permitido pela regra
+    maxSelection: 15, 
     defaultSelection: 5,
     cols: 10,
     color: 'indigo', 
@@ -84,7 +84,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Lotomania',
     totalNumbers: 100, 
     minSelection: 50,
-    maxSelection: 60, // Permitir selecionar um pouco mais para a IA filtrar os melhores 50
+    maxSelection: 60,
     defaultSelection: 50,
     cols: 10,
     color: 'orange',
@@ -102,7 +102,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Timemania',
     totalNumbers: 80,
     minSelection: 10,
-    maxSelection: 15, // Permitir margem para fechamento
+    maxSelection: 15,
     defaultSelection: 10,
     cols: 10,
     color: 'yellow',
@@ -120,7 +120,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Dia de Sorte',
     totalNumbers: 31,
     minSelection: 7,
-    maxSelection: 31, // Permitir fechamento total se desejar
+    maxSelection: 31, 
     defaultSelection: 7,
     cols: 7,
     color: 'amber',
@@ -195,11 +195,11 @@ export const GAMES: Record<string, GameConfig> = {
   supersete: {
     id: 'supersete',
     name: 'Super Sete',
-    totalNumbers: 70, // Simulado: 7 colunas de 10 (0-9)
+    totalNumbers: 70, 
     minSelection: 7,
     maxSelection: 21,
     defaultSelection: 7,
-    cols: 10, // Visualiza como linhas de 0-9
+    cols: 10,
     color: 'lime',
     apiSlug: 'supersete',
     startYear: 2020,
@@ -214,6 +214,24 @@ export const GAMES: Record<string, GameConfig> = {
       { quantity: 11, price: 40.00 },
       { quantity: 12, price: 80.00 },
       { quantity: 21, price: "Max" },
+    ]
+  },
+  federal: {
+    id: 'federal',
+    name: 'Federal',
+    totalNumbers: 0, // Especial: Não tem grade de seleção
+    minSelection: 1,
+    maxSelection: 1,
+    defaultSelection: 1,
+    cols: 1,
+    color: 'blue', // Azul padrão da Federal
+    apiSlug: 'federal',
+    startYear: 2015, // Aproximação para API disponível
+    minPrize: 500000,
+    howToPlay: "Na Federal você concorre com bilhetes contendo 5 dígitos (00000 a 99999). São sorteados 5 prêmios principais. Você ganha se acertar o bilhete sorteado em qualquer um dos 5 prêmios principais ou suas variações.",
+    drawDays: "Quartas e Sábados, às 19h.",
+    priceTable: [
+       { quantity: 1, price: "Variável (Fração)" }
     ]
   }
 };

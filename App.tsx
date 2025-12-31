@@ -53,6 +53,10 @@ const App: React.FC = () => {
     if (activeGame.id === 'supersete') {
         return Array.from({ length: 70 }, (_, i) => i); // 0 to 69
     }
+    // FEDERAL: Returns empty, no grid
+    if (activeGame.id === 'federal') {
+        return [];
+    }
     return Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
   }, [activeGame]);
 
@@ -97,6 +101,9 @@ const App: React.FC = () => {
   };
 
   const checkAutomaticWins = (result: LotteryResult, batches: SavedBetBatch[]) => {
+    // Federal does not support automatic win check (too complex combinations)
+    if (activeGame.id === 'federal') return;
+
     let maxHits = 0;
     // Filter batches for current game type
     const relevantBatches = batches.filter(b => b.gameType === activeGame.id || (!b.gameType && activeGame.id === 'lotofacil'));
@@ -134,8 +141,10 @@ const App: React.FC = () => {
   // Memoize parsed result numbers
   const resultNumbers = useMemo<Set<number>>(() => {
     if (!latestResult) return new Set<number>();
+    // Federal: Doesn't map well to a Set<number> for grid checking, but we keep it empty safely
+    if (activeGame.id === 'federal') return new Set();
     return new Set(latestResult.dezenas.map(d => parseInt(d, 10)));
-  }, [latestResult]);
+  }, [latestResult, activeGame.id]);
 
   const toggleNumber = (num: number) => {
     const newSelection = new Set(selectedNumbers);
@@ -263,7 +272,30 @@ const App: React.FC = () => {
     }
   };
 
+  // FEDERAL GENERATOR
+  const handleGenerateFederal = () => {
+      setStatus(AppStatus.GENERATING);
+      setTimeout(() => {
+          // Generates 5 random 5-digit numbers
+          const games: number[][] = [];
+          for(let i=0; i<5; i++) {
+              const num = Math.floor(Math.random() * 100000); // 0 to 99999
+              games.push([num]); // Store as single-element array to fit type
+          }
+          setGeneratedGames(games);
+          setStatus(AppStatus.SUCCESS);
+          setNotification({msg: "Bilhetes da sorte gerados!", type: 'success'});
+          setTimeout(() => setNotification(null), 2000);
+      }, 500);
+  };
+
   const handleGenerate = async () => {
+    // Especial: Federal
+    if (activeGame.id === 'federal') {
+        handleGenerateFederal();
+        return;
+    }
+
     if (selectedNumbers.size < activeGame.minSelection) return;
 
     setStatus(AppStatus.GENERATING);
@@ -383,7 +415,11 @@ const App: React.FC = () => {
   };
 
   const handleCopyGame = (game: number[], index: number) => {
-    const text = game.join(', ');
+    // Adapt copy for Federal (5 digit string) or Normal
+    const text = activeGame.id === 'federal' 
+        ? game[0].toString()
+        : game.join(', ');
+
     navigator.clipboard.writeText(text).then(() => {
       setCopiedGameIndex(index);
       setTimeout(() => setCopiedGameIndex(null), 2000);
@@ -396,13 +432,14 @@ const App: React.FC = () => {
 
   const handleWhatsAppShare = () => {
     if (generatedGames.length === 0) return;
-    const targetNumber = ""; // Open generic
     const nextDate = latestResult?.dataProximoConcurso || "Em breve";
     
     let message = `🤖 *LotoSmart AI - ${activeGame.name}*\n`;
     message += `📅 Próximo Sorteio: ${nextDate}\n\n`;
     generatedGames.slice(0, 50).forEach((game, index) => {
-      const line = game.map(n => n.toString().padStart(2, '0')).join(' ');
+      const line = activeGame.id === 'federal'
+          ? game[0].toString()
+          : game.map(n => n.toString().padStart(2, '0')).join(' ');
       message += `*Jogo ${(index + 1).toString().padStart(2, '0')}.* ${line}\n`;
     });
     if (generatedGames.length > 50) message += `\n...e mais ${generatedGames.length - 50} jogos.`;
@@ -544,7 +581,8 @@ const App: React.FC = () => {
             </div>
             <div className="overflow-y-auto p-0 text-slate-800 text-sm">
                 
-                {/* Full Detailed Stats Grid */}
+                {/* Full Detailed Stats Grid - Hide for Federal */}
+                {activeGame.id !== 'federal' && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border-b border-gray-200">
                     <div className="bg-white p-2 flex justify-between items-center"><span>Pares:</span><strong>{stats.pares}</strong></div>
                     <div className="bg-white p-2 flex justify-between items-center"><span>Ímpares:</span><strong>{stats.impares}</strong></div>
@@ -562,15 +600,25 @@ const App: React.FC = () => {
                     <div className="bg-white p-2 flex justify-between items-center"><span>Centro:</span><strong>{stats.centro}</strong></div>
                     <div className="bg-white p-2 flex justify-between items-center text-red-600"><span>Repetidos:</span><strong>{stats.repetidos}</strong></div>
                 </div>
+                )}
                 
                 {/* Prize List */}
                 <div className="p-2 bg-gray-50 border-t border-gray-200">
                     <div className="text-center text-xs font-bold text-gray-500 mb-1">Premiação</div>
                     {viewingGame.premiacoes.map((p, idx) => (
                         <div key={idx} className="flex justify-between items-center py-1 border-b border-gray-200 text-xs last:border-0">
+                            {/* Ajuste para Federal mostrar 1º Premio, 2º Premio etc */}
                             <span className="font-medium text-slate-600">
-                               {p.faixa > 20 ? `${p.faixa} acertos` : p.faixa === 0 ? '0 acertos' : `${p.faixa} acertos`}
+                               {activeGame.id === 'federal' 
+                                  ? `${p.faixa}º Prêmio` 
+                                  : (p.faixa > 20 ? `${p.faixa} acertos` : p.faixa === 0 ? '0 acertos' : `${p.faixa} acertos`)}
                             </span>
+                            
+                            {/* Federal Bilhete Display in List */}
+                            {activeGame.id === 'federal' && p.bilhete && (
+                                <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 rounded border border-blue-100">{p.bilhete}</span>
+                            )}
+
                             <div className="text-right">
                                <div className="font-bold text-slate-800">{p.ganhadores} ganhadores</div>
                                <div className="text-[10px] text-green-600">R$ {p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
@@ -582,11 +630,23 @@ const App: React.FC = () => {
                 {/* Simplified numbers view */}
                 <div className="p-4 bg-gray-100 border-t border-gray-200">
                     <div className="text-center text-xs text-gray-500 mb-2 font-bold">{viewingGame.data}</div>
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                        {viewingGame.dezenas.map(d => (
-                            <span key={d} className={`w-8 h-8 rounded-full bg-${activeGame.color}-600 text-white text-sm flex items-center justify-center font-bold shadow-md`}>{d}</span>
-                        ))}
-                    </div>
+                    
+                    {activeGame.id === 'federal' ? (
+                         <div className="flex flex-col gap-1 w-full max-w-[200px] mx-auto">
+                            {viewingGame.dezenas.map((bilhete, idx) => (
+                               <div key={idx} className="flex justify-between text-xs border-b border-gray-300 pb-1">
+                                  <span className="font-bold text-slate-500">{idx+1}º</span>
+                                  <span className="font-mono font-bold text-slate-800 tracking-widest">{bilhete}</span>
+                               </div>
+                            ))}
+                         </div>
+                    ) : (
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                            {viewingGame.dezenas.map(d => (
+                                <span key={d} className={`w-8 h-8 rounded-full bg-${activeGame.color}-600 text-white text-sm flex items-center justify-center font-bold shadow-md`}>{d}</span>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -689,11 +749,25 @@ const App: React.FC = () => {
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mb-4">
-                {latestResult.dezenas.map((n, idx) => (
-                  <span key={idx} className={`w-7 h-7 flex items-center justify-center bg-gradient-to-br from-${activeGame.color}-600/30 to-slate-800 border border-${activeGame.color}-500/40 rounded-full text-xs font-bold text-${activeGame.color}-100 shadow-sm`}>{n}</span>
-                ))}
-              </div>
+
+              {/* FEDERAL SPECIFIC RESULT DISPLAY */}
+              {activeGame.id === 'federal' ? (
+                  <div className="flex flex-col gap-2 mb-4">
+                      {latestResult.dezenas.map((bilhete, idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-black/20 p-2 rounded border border-white/5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">{idx + 1}º Prêmio</span>
+                              <span className="font-mono text-lg font-bold text-white tracking-widest">{bilhete}</span>
+                          </div>
+                      ))}
+                  </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mb-4">
+                    {latestResult.dezenas.map((n, idx) => (
+                    <span key={idx} className={`w-7 h-7 flex items-center justify-center bg-gradient-to-br from-${activeGame.color}-600/30 to-slate-800 border border-${activeGame.color}-500/40 rounded-full text-xs font-bold text-${activeGame.color}-100 shadow-sm`}>{n}</span>
+                    ))}
+                </div>
+              )}
+
               {latestResult.dataProximoConcurso && <CountdownTimer targetDateStr={latestResult.dataProximoConcurso} />}
               
               {/* Estimated Prize Display */}
@@ -716,6 +790,7 @@ const App: React.FC = () => {
 
         {/* Buttons Group */}
         <div className="grid grid-cols-2 gap-3">
+          {activeGame.id !== 'federal' && (
           <button 
             onClick={handleGenerateTop200}
             disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
@@ -730,15 +805,17 @@ const App: React.FC = () => {
               </>
             )}
           </button>
+          )}
           
           <button 
             onClick={handleOpenGalleries}
-            className="w-full py-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold flex flex-col items-center justify-center gap-1 active:bg-slate-700 transition-colors"
+            className={`w-full py-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold flex flex-col items-center justify-center gap-1 active:bg-slate-700 transition-colors ${activeGame.id === 'federal' ? 'col-span-2' : ''}`}
           >
              <span className="text-lg">🏆</span>
              <span className="text-xs">Resultados por Ano</span>
           </button>
 
+          {activeGame.id !== 'federal' && (
           <button 
             onClick={handleHistoricalStrategy}
             disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
@@ -746,9 +823,11 @@ const App: React.FC = () => {
           >
             {status === AppStatus.GENERATING ? <span className="text-xs animate-pulse">Analisando...</span> : <><span>🏛️</span><span>Análise Histórica IA</span></>}
           </button>
+          )}
         </div>
 
-        {/* Status Card */}
+        {/* Status Card (Hidden for Federal) */}
+        {activeGame.id !== 'federal' && (
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 sticky top-16 z-30 backdrop-blur-sm">
           <div className="flex justify-between items-center mb-2">
             <span className="text-slate-400 text-sm">Números Selecionados</span>
@@ -763,31 +842,40 @@ const App: React.FC = () => {
               <p className="text-[10px] text-center text-slate-500 mt-2">Selecione pelo menos {activeGame.minSelection} números</p>
           )}
         </div>
+        )}
 
         {/* Dynamic Grid */}
-        <div className={`grid ${getGridColsClass()} gap-2 sm:gap-3 justify-items-center pb-4`}>
-          {allNumbers.map((num) => (
-            <NumberBall
-              key={num}
-              number={num}
-              isSelected={selectedNumbers.has(num)}
-              isRecentResult={resultNumbers.has(num)}
-              onClick={toggleNumber}
-              disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
-              colorTheme={activeGame.color}
-              size={activeGame.totalNumbers > 60 ? 'small' : 'medium'}
-              // Super Sete display tweaks (show 0-9)
-              label={activeGame.id === 'supersete' ? (num % 10).toString() : undefined} 
-            />
-          ))}
-        </div>
+        {activeGame.id === 'federal' ? (
+            <div className="bg-blue-900/20 border border-blue-500/20 p-6 rounded-xl text-center">
+                <span className="text-4xl mb-2 block">🎫</span>
+                <p className="text-sm text-blue-200 mb-2 font-bold">Na Federal você concorre com bilhetes inteiros.</p>
+                <p className="text-xs text-slate-400">Gere abaixo palpites aleatórios de bilhetes de 5 dígitos para procurar na lotérica.</p>
+            </div>
+        ) : (
+            <div className={`grid ${getGridColsClass()} gap-2 sm:gap-3 justify-items-center pb-4`}>
+            {allNumbers.map((num) => (
+                <NumberBall
+                key={num}
+                number={num}
+                isSelected={selectedNumbers.has(num)}
+                isRecentResult={resultNumbers.has(num)}
+                onClick={toggleNumber}
+                disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
+                colorTheme={activeGame.color}
+                size={activeGame.totalNumbers > 60 ? 'small' : 'medium'}
+                // Super Sete display tweaks (show 0-9)
+                label={activeGame.id === 'supersete' ? (num % 10).toString() : undefined} 
+                />
+            ))}
+            </div>
+        )}
 
         {/* Generated Games Section */}
         {generatedGames.length > 0 && (
           <div className="space-y-4 pt-4 border-t border-slate-800">
              <div className="flex flex-col space-y-2">
                 <h3 className="text-lg font-bold text-white flex items-center">
-                  Jogos Gerados ({generatedGames.length})
+                  {activeGame.id === 'federal' ? 'Palpites de Bilhetes' : `Jogos Gerados (${generatedGames.length})`}
                 </h3>
                 <div className="flex w-full gap-2">
                     <button onClick={handleSaveBatch} className="flex-1 px-4 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg transition-colors">Salvar Todos</button>
@@ -806,8 +894,28 @@ const App: React.FC = () => {
                 const detailedStats = isExpanded ? calculateDetailedStats(game, prevNumbers, activeGame) : null;
 
                 let styleClass = "bg-slate-800 border-slate-700 hover:border-slate-500";
-                if (latestResult) {
+                if (latestResult && activeGame.id !== 'federal') {
                    styleClass = getHitStyle(hits);
+                }
+                
+                // Special render for Federal (One number, rectangular)
+                if (activeGame.id === 'federal') {
+                    const ticketNumber = game[0].toString();
+                    return (
+                        <button
+                            key={idx}
+                            onClick={() => handleCopyGame(game, idx)}
+                            className="w-full text-left p-4 bg-gradient-to-r from-blue-900/40 to-slate-800 border border-blue-500/30 rounded-lg shadow-sm relative overflow-hidden group active:scale-95 transition-all"
+                        >
+                             {isCopied && (
+                                <div className="absolute inset-0 z-20 bg-blue-600/90 flex items-center justify-center animate-fade-in"><span className="text-white font-bold">Copiado!</span></div>
+                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs text-blue-300 font-bold uppercase tracking-wider">Palpite {idx+1}</span>
+                                <div className="font-mono text-xl font-bold text-white tracking-[0.2em] bg-black/20 px-3 py-1 rounded border border-white/5">{ticketNumber}</div>
+                            </div>
+                        </button>
+                    );
                 }
                 
                 return (
@@ -896,17 +1004,17 @@ const App: React.FC = () => {
       <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-lg z-40 safe-area-pb">
         <div className="max-w-lg mx-auto flex gap-3">
           <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600">Limpar</button>
-          {selectedNumbers.size === 0 ? (
+          {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
              <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg`} disabled={status !== AppStatus.IDLE}>
                {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 
               onClick={handleGenerate}
-              disabled={selectionCount < activeGame.minSelection}
-              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white ${selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
+              disabled={activeGame.id !== 'federal' && selectionCount < activeGame.minSelection}
+              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white ${activeGame.id !== 'federal' && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
             >
-              {status === AppStatus.GENERATING ? 'Gerando...' : `Gerar Jogos`}
+              {status === AppStatus.GENERATING ? 'Gerando...' : (activeGame.id === 'federal' ? '🎫 Gerar Palpites' : `Gerar Jogos`)}
             </button>
           )}
         </div>
@@ -951,7 +1059,7 @@ const App: React.FC = () => {
                                 // Hit Logic for Saved Games
                                 let hitCount = 0;
                                 let isWinner = false;
-                                if (latestResult && latestResult.concurso === batch.targetConcurso) {
+                                if (activeGame.id !== 'federal' && latestResult && latestResult.concurso === batch.targetConcurso) {
                                     hitCount = calculateHits(g.numbers);
                                     // Simple win threshold logic
                                     if (activeGame.id === 'lotofacil' && hitCount >= 11) isWinner = true;
@@ -966,10 +1074,12 @@ const App: React.FC = () => {
                                         {isWinner && <div className={`absolute top-0 left-0 w-1 h-full bg-${activeGame.color}-500`}></div>}
                                         
                                         <div className="flex justify-between items-center mb-2 pl-2">
-                                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Jogo {g.gameNumber}</span>
+                                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                                                {activeGame.id === 'federal' ? `Bilhete ${g.gameNumber}` : `Jogo ${g.gameNumber}`}
+                                            </span>
                                             <div className="flex items-center gap-3">
                                                 {/* Score Badge */}
-                                                {latestResult && latestResult.concurso === batch.targetConcurso && (
+                                                {activeGame.id !== 'federal' && latestResult && latestResult.concurso === batch.targetConcurso && (
                                                     <div className={`px-2 py-0.5 rounded text-[10px] font-bold border ${isWinner ? `bg-${activeGame.color}-500 text-white border-${activeGame.color}-400 shadow-sm` : 'bg-slate-700 text-slate-400 border-slate-600'}`}>
                                                         {hitCount} pts
                                                     </div>
@@ -980,16 +1090,22 @@ const App: React.FC = () => {
                                             </div>
                                         </div>
                                         
-                                        <div className="flex flex-wrap gap-2 pl-2">
-                                            {g.numbers.map(n => {
-                                                const isHit = latestResult && latestResult.concurso === batch.targetConcurso && resultNumbers.has(n);
-                                                return (
-                                                    <span key={n} className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold shadow-sm transition-transform ${isHit ? `bg-white text-slate-900 scale-110 z-10 border-2 border-${activeGame.color}-500` : `bg-slate-900 text-${activeGame.color}-200/60 border border-slate-700/50`}`}>
-                                                        {activeGame.id === 'supersete' ? (n % 10) : n.toString().padStart(2, '0')}
-                                                    </span>
-                                                )
-                                            })}
-                                        </div>
+                                        {activeGame.id === 'federal' ? (
+                                             <div className="pl-2">
+                                                 <span className="font-mono text-lg text-blue-300 font-bold tracking-[0.2em]">{g.numbers[0].toString()}</span>
+                                             </div>
+                                        ) : (
+                                            <div className="flex flex-wrap gap-2 pl-2">
+                                                {g.numbers.map(n => {
+                                                    const isHit = latestResult && latestResult.concurso === batch.targetConcurso && resultNumbers.has(n);
+                                                    return (
+                                                        <span key={n} className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold shadow-sm transition-transform ${isHit ? `bg-white text-slate-900 scale-110 z-10 border-2 border-${activeGame.color}-500` : `bg-slate-900 text-${activeGame.color}-200/60 border border-slate-700/50`}`}>
+                                                            {activeGame.id === 'supersete' ? (n % 10) : n.toString().padStart(2, '0')}
+                                                        </span>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
