@@ -7,7 +7,7 @@ const MODEL_NAME = 'gemini-3-flash-preview';
 /**
  * Asks Gemini to suggest numbers based on a strategy.
  */
-export const getAiSuggestions = async (gameName: string, selectionSize: number, totalNumbers: number): Promise<number[]> => {
+export const getAiSuggestions = async (gameName: string = 'lotofacil', selectionSize: number = 15, totalNumbers: number = 25): Promise<number[]> => {
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
@@ -41,7 +41,7 @@ export const getAiSuggestions = async (gameName: string, selectionSize: number, 
 /**
  * NEW: Generates numbers based on TOTAL HISTORY
  */
-export const getHistoricalBestNumbers = async (gameName: string, selectionSize: number): Promise<number[]> => {
+export const getHistoricalBestNumbers = async (gameName: string = 'lotofacil', selectionSize: number = 15): Promise<number[]> => {
   try {
     const prompt = `
       Atue como um cientista de dados especialista em loterias (${gameName}).
