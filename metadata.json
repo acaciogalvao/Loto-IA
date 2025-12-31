@@ -1,0 +1,5 @@
+{
+  "name": "LotoSmart AI",
+  "description": "Sistema inteligente de fechamento para Lotofácil com análise via Gemini AI",
+  "requestFramePermissions": []
+}
