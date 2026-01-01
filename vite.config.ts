@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      base: '/Loto-IA/', // <--- necessário para GitHub Pages em um repositório de usuário/organização
       server: {
         port: 3000,
         host: '0.0.0.0',
