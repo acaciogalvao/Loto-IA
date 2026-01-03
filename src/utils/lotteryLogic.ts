@@ -144,7 +144,7 @@ const getMolduraSet = (game: GameConfig): Set<number> => {
   return set;
 };
 
-export const getStats = (game: number[]) => {
+export const getStats = (game: number[]): { evens: number; odds: number; sum: number } => {
   const evens = game.filter(n => n % 2 === 0).length;
   const odds = game.length - evens;
   const sum = game.reduce((a, b) => a + b, 0);

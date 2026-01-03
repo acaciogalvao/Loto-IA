@@ -133,9 +133,13 @@ const App: React.FC = () => {
           setLatestResult(res);
         } else {
             console.warn("API retornou vazio, mantendo dados anteriores se existirem.");
+            setNotification({ msg: "Modo Offline: Resultados não atualizados.", type: 'info' });
         }
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+          console.error(err);
+          setNotification({ msg: "Erro de conexão. Verifique sua internet.", type: 'error' });
+      })
       .finally(() => setIsResultLoading(false));
   };
 
@@ -298,7 +302,13 @@ const App: React.FC = () => {
 
   const handleGenerateTop200 = async () => {
     vibrate(20);
-    if (!latestResult) return;
+    // Proteção se não tiver resultado carregado
+    if (!latestResult) {
+        setNotification({ msg: 'Aguarde o carregamento do último resultado.', type: 'error' });
+        loadLatestResult();
+        return;
+    }
+
     setStatus(AppStatus.GENERATING);
     setGeneratedGames([]);
     setHistoryCheck(null);
@@ -479,9 +489,19 @@ const App: React.FC = () => {
                  if (latestResult) {
                     const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 50);
                     finalSelection = calculateHotNumbers(pastResults, poolSize);
-                 } else {
-                    finalSelection = Array.from({length: poolSize}, () => Math.floor(Math.random() * activeGame.totalNumbers) + 1);
+                 } 
+                 
+                 // Fallback Garantido se fetch falhar ou retornar vazio
+                 if (finalSelection.length < poolSize) {
+                    const remaining = poolSize - finalSelection.length;
+                    const randomFill = Array.from({length: activeGame.totalNumbers}, (_, i) => i + 1)
+                        .filter(n => !finalSelection.includes(n))
+                        .sort(() => 0.5 - Math.random())
+                        .slice(0, remaining);
+                    finalSelection = [...finalSelection, ...randomFill];
                  }
+                 
+                 finalSelection.sort((a,b) => a-b);
                  setSelectedNumbers(new Set(finalSelection));
              } catch (e) {
                  console.error("Erro pool auto", e);
@@ -498,18 +518,28 @@ const App: React.FC = () => {
              setNotification({ msg: `Completando com ${missing} números automáticos...`, type: 'info' });
              
              try {
-                 const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult ? latestResult.concurso : 0, 50);
-                 const hotNumbers = calculateHotNumbers(pastResults, activeGame.totalNumbers);
-                 
-                 for (const num of hotNumbers) {
-                    if (finalSelection.length >= gameSize) break;
-                    if (!selectedNumbers.has(num)) {
-                        finalSelection.push(num);
-                    }
+                 // Tenta usar lógica de números quentes se tiver resultado carregado
+                 if (latestResult) {
+                     const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 50);
+                     const hotNumbers = calculateHotNumbers(pastResults, activeGame.totalNumbers);
+                     
+                     for (const num of hotNumbers) {
+                        if (finalSelection.length >= gameSize) break;
+                        if (!selectedNumbers.has(num)) {
+                            finalSelection.push(num);
+                        }
+                     }
                  }
+                 // Loop de Garantia (caso API falhe ou não preencha tudo)
+                 while(finalSelection.length < gameSize) {
+                     const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
+                     if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
+                 }
+                 
                  finalSelection.sort((a,b) => a-b);
                  setSelectedNumbers(new Set(finalSelection));
              } catch(e) {
+                 // Fallback Totalmente Aleatório
                  while(finalSelection.length < gameSize) {
                      const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
                      if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
@@ -636,8 +666,21 @@ const App: React.FC = () => {
   const handleAiSuggestion = async () => {
     vibrate(20);
     setStatus(AppStatus.GENERATING);
+    setLoadingProgress(0); // Inicia progresso em 0
+
+    // Simulação de Progresso (já que a chamada é única e não streamada por padrão)
+    const fakeProgressInterval = setInterval(() => {
+        setLoadingProgress(prev => {
+            if (prev >= 90) return prev; // Para em 90% até a resposta chegar
+            return prev + Math.floor(Math.random() * 15) + 5;
+        });
+    }, 400);
+
     try {
       const suggestions = await getAiSuggestions(activeGame.name, activeGame.minSelection, activeGame.totalNumbers);
+      clearInterval(fakeProgressInterval);
+      setLoadingProgress(100);
+
       if (suggestions.length > 0) {
         const validSuggestions = suggestions.filter(n => n >= 1 && n <= activeGame.totalNumbers);
         const capped = validSuggestions.slice(0, activeGame.maxSelection);
@@ -646,12 +689,41 @@ const App: React.FC = () => {
         setGeneratedGames([]);
         setStatus(AppStatus.IDLE);
         vibrate(50);
+        setNotification({ msg: "Palpite Inteligente Gerado!", type: 'success' });
+        setTimeout(() => setNotification(null), 2000);
       }
     } catch (e) {
+      clearInterval(fakeProgressInterval);
+      setLoadingProgress(0);
       console.error(e);
-      setNotification({msg: "Erro na IA. Tente novamente.", type: 'error'});
+      
+      // FALLBACK: Geração Matemática se IA falhar
+      setNotification({msg: "IA indisponível. Usando estatística local.", type: 'info'});
+      try {
+          const fallback = [];
+          const all = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+          // Tenta pegar alguns "quentes" se possível
+          if (latestResult) {
+             const past = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 20);
+             const hot = calculateHotNumbers(past, activeGame.maxSelection);
+             fallback.push(...hot);
+          }
+          
+          while(fallback.length < activeGame.maxSelection) {
+              const rnd = all[Math.floor(Math.random() * all.length)];
+              if(!fallback.includes(rnd)) fallback.push(rnd);
+          }
+          const finalFallback = fallback.slice(0, activeGame.maxSelection).sort((a, b) => a - b);
+          setSelectedNumbers(new Set(finalFallback));
+          setGameSize(finalFallback.length);
+          setStatus(AppStatus.IDLE);
+      } catch (err2) {
+          setNotification({msg: "Erro total. Tente novamente.", type: 'error'});
+      }
+
     } finally {
       setStatus(AppStatus.IDLE);
+      setTimeout(() => setLoadingProgress(0), 500);
     }
   };
 
@@ -1445,8 +1517,13 @@ const App: React.FC = () => {
         <div className="max-w-lg mx-auto flex gap-3">
           <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600 active:scale-95 transition-transform">Limpar</button>
           {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
-             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform`} disabled={status !== AppStatus.IDLE}>
-               {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
+             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform relative overflow-hidden`} disabled={status !== AppStatus.IDLE}>
+               {status === AppStatus.GENERATING ? (
+                   <>
+                       <span className="relative z-10">Analisando... {loadingProgress}%</span>
+                       <div className="absolute top-0 left-0 h-full bg-black/20" style={{ width: `${loadingProgress}%`, transition: 'width 0.3s ease' }}></div>
+                   </>
+               ) : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 

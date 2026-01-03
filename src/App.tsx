@@ -451,7 +451,7 @@ const App: React.FC = () => {
     const targetNumber = "5599984252028";
     const nextDate = latestResult?.dataProximoConcurso || "Em breve";
     const filteredGames = generatedGames.filter(game => {
-      const stats = getStats(game);
+      const stats = getStats(game) as { evens: number; odds: number; sum: number };
       const odds = Number(stats.odds);
       const sum = Number(stats.sum);
       return (odds >= 7 && odds <= 9) && (sum >= 170 && sum <= 225);
@@ -942,7 +942,7 @@ const App: React.FC = () => {
                 const isCopied = copiedGameIndex === idx;
                 
                 // Calculate Stats for visual feedback
-                const stats = getStats(game);
+                const stats = getStats(game) as { evens: number; odds: number; sum: number };
                 const evens = Number(stats.evens);
                 const sum = Number(stats.sum);
                 const isOptimized = evens >= 6 && evens <= 9 && sum >= 170 && sum <= 225;

@@ -7,11 +7,24 @@ const MODEL_NAME = 'gemini-3-flash-preview';
 /**
  * Asks Gemini to suggest numbers based on a strategy.
  */
-export const getAiSuggestions = async (gameName: string, selectionSize: number, totalNumbers: number): Promise<number[]> => {
+export const getAiSuggestions = async (gameName: string = 'lotofacil', selectionSize: number = 15, totalNumbers: number = 25): Promise<number[]> => {
   try {
+    const prompt = `
+      Atue como um Especialista em Probabilidade Lotérica para a ${gameName}.
+      
+      TAREFA: Gere uma sugestão estratégica de ${selectionSize} números únicos (entre 1 e ${totalNumbers}).
+      
+      ESTRATÉGIA OBRIGATÓRIA:
+      1. Equilíbrio: Tente manter uma proporção saudável de Pares/Ímpares (ex: 50/50 ou 40/60).
+      2. Dispersão: Distribua os números por todo o volante, evitando aglomerados excessivos.
+      3. Temperatura: Misture números "Quentes" (frequentes) com "Frios" (atrasados) para aumentar a cobertura estatística.
+      
+      Retorne APENAS o JSON com a lista final de números.
+    `;
+
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: `Gere uma lista de ${selectionSize} números únicos para a ${gameName} (entre 1 e ${totalNumbers}) utilizando a técnica de 'Rastreamento de Tendência'. Identifique números quentes recentes e misture com números atrasados para equilíbrio. Retorne apenas o JSON.`,
+      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -41,7 +54,7 @@ export const getAiSuggestions = async (gameName: string, selectionSize: number, 
 /**
  * NEW: Generates numbers based on TOTAL HISTORY
  */
-export const getHistoricalBestNumbers = async (gameName: string, selectionSize: number): Promise<number[]> => {
+export const getHistoricalBestNumbers = async (gameName: string = 'lotofacil', selectionSize: number = 15): Promise<number[]> => {
   try {
     const prompt = `
       Atue como um cientista de dados especialista em loterias (${gameName}).
