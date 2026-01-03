@@ -45,18 +45,16 @@ export const saveBets = (
     const currentBatch = existingBatches[existingBatchIndex];
     
     // 3. Remover duplicatas contra o BANCO DE DADOS (o que já está salvo neste grupo)
-    // Cria um Set com as assinaturas dos jogos JÁ salvos para busca rápida
     const existingSignatures = new Set(
         currentBatch.games.map(g => JSON.stringify([...g.numbers].sort((a, b) => a - b)))
     );
 
     const uniqueGames = newGamesToAddPayload.filter(newGame => {
-        const signature = JSON.stringify(newGame.numbers); // Já está ordenado do passo 1
+        const signature = JSON.stringify(newGame.numbers); 
         return !existingSignatures.has(signature);
     });
 
     if (uniqueGames.length > 0) {
-      // Adiciona apenas os únicos ao lote existente
       currentBatch.games = [...currentBatch.games, ...uniqueGames].sort((a, b) => a.gameNumber - b.gameNumber);
     }
     existingBatches[existingBatchIndex] = currentBatch;
@@ -69,30 +67,24 @@ export const saveBets = (
       gameType: gameType,
       games: newGamesToAddPayload
     };
-    // Adiciona no topo da lista
     existingBatches.unshift(newBatch);
   }
-  
-  // --- MUDANÇA: REMOVIDO LIMITE ARTIFICIAL DE 100 GRUPOS ---
-  // O armazenamento agora cresce indefinidamente até o limite físico do LocalStorage do navegador.
   
   try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(existingBatches));
   } catch (e) {
-      console.error("Erro crítico: Armazenamento cheio (LocalStorage Quota Exceeded)", e);
-      alert("Atenção: O armazenamento do navegador está cheio. Não foi possível salvar novos jogos. Tente apagar jogos antigos.");
+      console.error("Erro crítico: Armazenamento cheio", e);
+      alert("Atenção: O armazenamento do navegador está cheio.");
       
-      // Fallback de emergência: Tenta salvar removendo o lote mais antigo para não perder o dado atual
-      // Isso garante que o app não quebre se o usuário atingir 5MB de dados
+      // Fallback de emergência
       if (existingBatches.length > 1) {
           try {
              const emergencyBatches = [...existingBatches];
-             // Remove o último (mais antigo) até caber
              while(emergencyBatches.length > 0) {
                  emergencyBatches.pop();
                  try {
                      localStorage.setItem(STORAGE_KEY, JSON.stringify(emergencyBatches));
-                     return emergencyBatches; // Conseguiu salvar sacrificando antigos
+                     return emergencyBatches; 
                  } catch(err) { continue; }
              }
           } catch (e2) {
@@ -109,29 +101,29 @@ export const getSavedBets = (): SavedBetBatch[] => {
     if (!data) return [];
     
     let parsed: any[] = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+
     let hasChanges = false;
     
     const migratedData: SavedBetBatch[] = parsed.map(batch => {
-      const batchId = batch.id || generateId();
-      if (!batch.id) hasChanges = true;
+      // FORÇA O ID SER STRING E GERA SE NÃO EXISTIR
+      const batchId = batch.id ? String(batch.id) : generateId();
+      if (!batch.id || typeof batch.id !== 'string') hasChanges = true;
 
-      // Migration: If gameType is missing, assume lotofacil (legacy)
       const gType = batch.gameType || 'lotofacil'; 
       if (!batch.gameType) hasChanges = true;
 
       let migratedGames: SavedGame[] = [];
       if (Array.isArray(batch.games)) {
         migratedGames = batch.games.map((g: any, idx: number) => {
-          // Garante que todo jogo tenha ID e gameNumber
           if (g && typeof g === 'object' && Array.isArray(g.numbers)) {
-             const gId = g.id || generateId();
+             const gId = g.id ? String(g.id) : generateId();
              const gNum = typeof g.gameNumber === 'number' ? g.gameNumber : (idx + 1);
              
              if (!g.id || typeof g.gameNumber !== 'number') hasChanges = true;
 
              return { id: gId, numbers: g.numbers, gameNumber: gNum } as SavedGame;
           }
-          // Legacy format handling
           if (Array.isArray(g)) {
             hasChanges = true;
             return { id: generateId(), numbers: g, gameNumber: idx + 1 } as SavedGame;
@@ -169,16 +161,21 @@ export const syncBets = (batches: SavedBetBatch[]) => {
 
 export const deleteBatch = (batchId: string): SavedBetBatch[] => {
   const batches = getSavedBets();
-  const updatedBatches = batches.filter(b => b.id !== batchId);
+  // Converte ambos para string para garantir comparação correta (caso venha número do legado)
+  const targetId = String(batchId);
+  const updatedBatches = batches.filter(b => String(b.id) !== targetId);
   syncBets(updatedBatches);
   return updatedBatches;
 };
 
 export const deleteGame = (batchId: string, gameId: string): SavedBetBatch[] => {
   const batches = getSavedBets();
+  const targetBatchId = String(batchId);
+  const targetGameId = String(gameId);
+
   const updatedBatches = batches.map(batch => {
-      if (batch.id === batchId) {
-          const newGames = batch.games.filter(g => g.id !== gameId);
+      if (String(batch.id) === targetBatchId) {
+          const newGames = batch.games.filter(g => String(g.id) !== targetGameId);
           return { ...batch, games: newGames };
       }
       return batch;

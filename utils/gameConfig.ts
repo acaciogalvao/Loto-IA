@@ -6,7 +6,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Lotofácil',
     totalNumbers: 25,
     minSelection: 15,
-    maxSelection: 25, 
+    maxSelection: 20, // Ajustado para o limite do volante
     defaultSelection: 15,
     cols: 5,
     color: 'purple',
@@ -29,7 +29,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Mega-Sena',
     totalNumbers: 60,
     minSelection: 6,
-    maxSelection: 20,
+    maxSelection: 15, // Ajustado para 15 conforme solicitado (exemplo)
     defaultSelection: 6,
     cols: 10,
     color: 'emerald',
@@ -56,7 +56,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Quina',
     totalNumbers: 80,
     minSelection: 5,
-    maxSelection: 15, 
+    maxSelection: 15, // Limite máximo do volante
     defaultSelection: 5,
     cols: 10,
     color: 'indigo', 
@@ -84,7 +84,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Lotomania',
     totalNumbers: 100, 
     minSelection: 50,
-    maxSelection: 60,
+    maxSelection: 50, // Fixado em 50 (aposta única)
     defaultSelection: 50,
     cols: 10,
     color: 'orange',
@@ -102,7 +102,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Timemania',
     totalNumbers: 80,
     minSelection: 10,
-    maxSelection: 15,
+    maxSelection: 10, // Fixado em 10 (aposta única)
     defaultSelection: 10,
     cols: 10,
     color: 'yellow',
@@ -120,7 +120,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Dia de Sorte',
     totalNumbers: 31,
     minSelection: 7,
-    maxSelection: 31, 
+    maxSelection: 15, // Limite máximo do volante
     defaultSelection: 7,
     cols: 7,
     color: 'amber',
@@ -146,7 +146,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Dupla Sena',
     totalNumbers: 50,
     minSelection: 6,
-    maxSelection: 15,
+    maxSelection: 15, // Limite máximo do volante
     defaultSelection: 6,
     cols: 10,
     color: 'rose',
@@ -173,7 +173,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: '+Milionária',
     totalNumbers: 50,
     minSelection: 6,
-    maxSelection: 12,
+    maxSelection: 12, // Limite máximo do volante
     defaultSelection: 6,
     cols: 10,
     color: 'blue',
@@ -197,7 +197,7 @@ export const GAMES: Record<string, GameConfig> = {
     name: 'Super Sete',
     totalNumbers: 70, 
     minSelection: 7,
-    maxSelection: 21,
+    maxSelection: 21, // Limite máximo do volante
     defaultSelection: 7,
     cols: 10,
     color: 'lime',
@@ -219,14 +219,14 @@ export const GAMES: Record<string, GameConfig> = {
   federal: {
     id: 'federal',
     name: 'Federal',
-    totalNumbers: 0, // Especial: Não tem grade de seleção
+    totalNumbers: 0, 
     minSelection: 1,
     maxSelection: 1,
     defaultSelection: 1,
     cols: 1,
-    color: 'blue', // Azul padrão da Federal
+    color: 'blue', 
     apiSlug: 'federal',
-    startYear: 2015, // Aproximação para API disponível
+    startYear: 2015, 
     minPrize: 500000,
     howToPlay: "Na Federal você concorre com bilhetes contendo 5 dígitos (00000 a 99999). São sorteados 5 prêmios principais. Você ganha se acertar o bilhete sorteado em qualquer um dos 5 prêmios principais ou suas variações.",
     drawDays: "Quartas e Sábados, às 19h.",

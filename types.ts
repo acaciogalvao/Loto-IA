@@ -35,11 +35,18 @@ export interface AnalysisResult {
   tips: string;
 }
 
+export interface WinnerLocation {
+  cidade: string;
+  uf: string;
+  ganhadores: number;
+}
+
 export interface PrizeEntry {
   faixa: number; // 11, 12, 13, 14, 15
   ganhadores: number;
   valor: number;
   bilhete?: string; // NOVO: Para Loteria Federal
+  locais?: WinnerLocation[]; // NOVO: Lista de cidades ganhadoras
 }
 
 export interface LotteryResult {

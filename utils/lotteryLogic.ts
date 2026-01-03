@@ -81,6 +81,21 @@ export const generateBalancedMatrix = (sourceNumbers: number[], totalGames: numb
   return games;
 };
 
+/**
+ * Filtra o histórico para manter apenas jogos que tiveram ganhadores na faixa principal (não acumulados).
+ * Baseia-se no fato de que 'premiacoes[0]' é sempre a faixa principal devido à ordenação na API.
+ */
+export const filterGamesWithWinners = (history: PastGameResult[]): PastGameResult[] => {
+  return history.filter(game => {
+    // Se a lista de premiações existir e o primeiro item (maior faixa) tiver ganhadores > 0
+    if (game.premiacoes && game.premiacoes.length > 0) {
+        return game.premiacoes[0].ganhadores > 0;
+    }
+    // Fallback: se não tiver dados de premiação, assume que é válido para não zerar a lista em APIs limitadas
+    return true; 
+  });
+};
+
 export const calculateHotNumbers = (pastResults: PastGameResult[], topN: number = 20): number[] => {
   const frequency: Record<number, number> = {};
 

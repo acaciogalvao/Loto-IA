@@ -1,6 +1,7 @@
-import { LotteryResult, PastGameResult, PrizeEntry } from '../types';
+import { LotteryResult, PastGameResult, PrizeEntry, WinnerLocation } from '../types';
 
 const BASE_API_URL = 'https://api.guidi.dev.br/loteria';
+const HISTORY_CACHE_KEY_PREFIX = 'lotosmart_history_v2_';
 
 // Helper function to calculate next draw date if API fails
 const calculateNextDrawDate = (lastDateStr: string): string => {
@@ -71,15 +72,51 @@ const parsePremiacoes = (data: any, gameSlug: string): PrizeEntry[] => {
         value = Number(rawValue);
     }
     
-    // Campo específico da Federal - Removendo zeros a esquerda se houver
+    // Campo específico da Federal
     const bilhete = p.bilhete ? String(parseInt(String(p.bilhete), 10)) : undefined;
+
+    // --- EXTRAÇÃO DE LOCAIS (CIDADES/ESTADOS) ---
+    // A API é inconsistente. Aqui tentamos todas as variações conhecidas.
+    let locais: WinnerLocation[] = [];
+    
+    // 1. Lista explicita
+    const rawLocais = p.listaMunicipioUFGanhadores || p.locais || p.cidades || [];
+    
+    if (Array.isArray(rawLocais) && rawLocais.length > 0) {
+        locais = rawLocais.map((l: any) => ({
+            cidade: (l.municipio || l.nomeMunicipio || l.cidade || l.nome || 'Indefinido').trim(),
+            uf: (l.uf || l.siglaUF || l.estado || '--').trim().toUpperCase(),
+            ganhadores: parseInt(l.ganhadores || l.quantidade || '1', 10)
+        })).filter(l => l.cidade !== '' && l.cidade !== 'Indefinido');
+    } 
+    // 2. Objeto único no próprio prêmio (comum quando há 1 ganhador)
+    else if (p.municipio || p.nomeMunicipio) {
+         locais.push({
+             cidade: (p.municipio || p.nomeMunicipio).trim(),
+             uf: (p.uf || p.siglaUF || '--').trim().toUpperCase(),
+             ganhadores: winners // Assume que todos são dessa cidade se não for array, ou 1
+         });
+    }
+    // 3. Campo observação que as vezes contém a cidade (API legado)
+    else if (winners > 0 && typeof p.observacao === 'string' && p.observacao.includes('/')) {
+         // Tenta extrair "CIDADE/UF" de strings simples
+         const parts = p.observacao.split('/');
+         if (parts.length === 2 && parts[1].length === 2) {
+             locais.push({
+                 cidade: parts[0].trim(),
+                 uf: parts[1].trim().toUpperCase(),
+                 ganhadores: winners
+             });
+         }
+    }
 
     // Include if it looks like a valid prize tier
     parsed.push({
       faixa: acertos || 0,
       ganhadores: isNaN(winners) ? 0 : winners,
       valor: isNaN(value) ? 0 : value,
-      bilhete: bilhete
+      bilhete: bilhete,
+      locais: locais.length > 0 ? locais : undefined
     });
   });
 
@@ -132,6 +169,19 @@ const normalizeResult = (data: any, gameSlug: string): LotteryResult => {
     const valorAcumuladoAtual = data.valor_acumulado || data.valorAcumulado || 0;
     const valorAcumuladoEspecial = data.valor_acumulado_concurso_especial || data.valorAcumuladoConcursoEspecial || 0;
 
+    // --- NOVA TENTATIVA DE EXTRAIR LOCAIS DO NÍVEL RAIZ SE NÃO ESTIVEREM NAS PREMIAÇÕES ---
+    // Algumas APIs colocam 'locais' na raiz do objeto de retorno, não dentro de 'premiacoes'
+    if (data.locais && Array.isArray(data.locais) && premiacoes.length > 0) {
+        // Assume que os locais da raiz pertencem à faixa principal (index 0)
+        if (!premiacoes[0].locais) {
+             premiacoes[0].locais = data.locais.map((l: any) => ({
+                cidade: (l.municipio || l.cidade).trim(),
+                uf: (l.uf || l.estado).trim().toUpperCase(),
+                ganhadores: parseInt(l.ganhadores || '1', 10)
+             }));
+        }
+    }
+
     return {
       concurso,
       data: dataApuracao,
@@ -150,8 +200,9 @@ const normalizeResult = (data: any, gameSlug: string): LotteryResult => {
 
 export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult | null> => {
   try {
-    // Guidi API: /loteria/lotofacil/ultimo
-    const response = await fetch(`${BASE_API_URL}/${gameSlug}/ultimo`);
+    const timestamp = new Date().getTime();
+    const response = await fetch(`${BASE_API_URL}/${gameSlug}/ultimo?t=${timestamp}`);
+    
     if (!response.ok) {
       throw new Error('Falha ao buscar resultados');
     }
@@ -164,11 +215,88 @@ export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult
   }
 };
 
-// Range fetch with throttling to prevent rate limits
-export const fetchResultsRange = async (gameSlug: string, startConcurso: number, endConcurso: number): Promise<PastGameResult[]> => {
+/**
+ * CACHED FULL HISTORY FETCH
+ * Verifica o LocalStorage antes de bater na API.
+ */
+export const getFullHistoryWithCache = async (
+    gameSlug: string, 
+    latestConcurso: number, 
+    onProgress?: (percent: number) => void
+): Promise<PastGameResult[]> => {
+    
+    const cacheKey = `${HISTORY_CACHE_KEY_PREFIX}${gameSlug}`;
+    
+    // 1. Tentar carregar do cache
+    let cachedHistory: PastGameResult[] = [];
+    try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) {
+            cachedHistory = JSON.parse(raw);
+        }
+    } catch (e) {
+        console.warn("Erro ao ler cache de histórico", e);
+    }
+
+    // Ordenar para garantir integridade
+    cachedHistory.sort((a, b) => a.concurso - b.concurso);
+
+    // 2. Verificar qual o último concurso que temos
+    const lastStoredConcurso = cachedHistory.length > 0 
+        ? cachedHistory[cachedHistory.length - 1].concurso 
+        : 0;
+
+    // Se já temos tudo (ou até mais, caso a API esteja atrasada em relação ao último), retorna
+    if (lastStoredConcurso >= latestConcurso) {
+        if (onProgress) onProgress(100);
+        return cachedHistory;
+    }
+
+    // 3. Buscar apenas o diferencial (delta)
+    const startFetch = lastStoredConcurso + 1;
+    
+    // Se precisar buscar muitos, avisa via callback
+    const totalToFetch = latestConcurso - startFetch + 1;
+    
+    const newResults = await fetchResultsRange(gameSlug, startFetch, latestConcurso, (prog) => {
+        if (onProgress) {
+            // Normaliza o progresso do fetch (0-100)
+            onProgress(prog);
+        }
+    });
+
+    // 4. Mesclar e Salvar
+    const fullHistory = [...cachedHistory, ...newResults].sort((a, b) => a.concurso - b.concurso);
+    
+    try {
+        localStorage.setItem(cacheKey, JSON.stringify(fullHistory));
+    } catch (e) {
+        console.error("Cache cheio! Não foi possível salvar o histórico completo.", e);
+        // Tenta salvar pelo menos os últimos 1000 se falhar
+        if (fullHistory.length > 1000) {
+             try {
+                 const sliced = fullHistory.slice(fullHistory.length - 1000);
+                 localStorage.setItem(cacheKey, JSON.stringify(sliced));
+             } catch(e2) {}
+        }
+    }
+
+    return fullHistory;
+};
+
+// Optimized Range fetch with higher concurrency
+export const fetchResultsRange = async (
+    gameSlug: string, 
+    startConcurso: number, 
+    endConcurso: number,
+    onProgress?: (percentage: number) => void
+): Promise<PastGameResult[]> => {
   const results: PastGameResult[] = [];
-  const concurrencyLimit = 5; // Max simultaneous requests
-  const delayMs = 50; // Small delay to be polite
+  // AUMENTADO: Concorrência de 5 para 15
+  const concurrencyLimit = 15; 
+  // REDUZIDO: Delay de 50ms para 10ms
+  const delayMs = 10; 
+  const timestamp = new Date().getTime();
 
   // Generate list of IDs to fetch
   const idsToFetch = [];
@@ -176,11 +304,13 @@ export const fetchResultsRange = async (gameSlug: string, startConcurso: number,
     idsToFetch.push(i);
   }
 
+  const totalBatches = Math.ceil(idsToFetch.length / concurrencyLimit);
+
   // Process in chunks
   for (let i = 0; i < idsToFetch.length; i += concurrencyLimit) {
     const chunk = idsToFetch.slice(i, i + concurrencyLimit);
     const promises = chunk.map(id => 
-       fetch(`${BASE_API_URL}/${gameSlug}/${id}`)
+       fetch(`${BASE_API_URL}/${gameSlug}/${id}?t=${timestamp}`)
         .then(res => {
           if (!res.ok) return null;
           return res.json();
@@ -206,8 +336,16 @@ export const fetchResultsRange = async (gameSlug: string, startConcurso: number,
       }
     });
 
-    // Small delay between chunks
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    if (onProgress) {
+        const currentBatch = Math.floor(i / concurrencyLimit) + 1;
+        const percent = Math.min(100, Math.round((currentBatch / totalBatches) * 100));
+        onProgress(percent);
+    }
+
+    // Small delay between chunks to avoid rate limiting
+    if (i + concurrencyLimit < idsToFetch.length) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
   }
   
   return results.sort((a, b) => b.concurso - a.concurso);

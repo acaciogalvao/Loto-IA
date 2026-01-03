@@ -45,9 +45,8 @@ const NumberBall: React.FC<NumberBallProps> = ({
      }
   };
 
-  // Added border-white/30 to selected state for thicker/visible border
-  // Added hover:scale-110 for subtle animation
-  const selectedClasses = `${getSelectedColor()} scale-105 border-white/30 hover:scale-110`;
+  // Added ring-2 ring-offset-2 ring-offset-slate-900 ring-white/50 for visual selection feedback
+  const selectedClasses = `${getSelectedColor()} scale-105 border-white/30 hover:scale-110 ring-2 ring-offset-2 ring-offset-slate-900 ring-white/50 z-10`;
   
   // Added hover:border-slate-500 and hover:scale-110 for unselected state
   const unselectedClasses = "bg-slate-700 text-slate-300 hover:bg-slate-600 border-transparent hover:border-slate-500 hover:scale-110";
