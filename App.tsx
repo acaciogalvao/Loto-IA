@@ -773,7 +773,7 @@ const App: React.FC = () => {
 
   // --- DELETE LOGIC (2-STEP CONFIRMATION) ---
   
-  const handleDeleteBatch = (e: React.MouseEvent, batchId: string) => {
+  const handleRequestDeleteBatch = (e: React.MouseEvent, batchId: string) => {
     e.preventDefault();
     e.stopPropagation();
     vibrate(15);
@@ -1514,7 +1514,21 @@ const App: React.FC = () => {
                     </div>
                   ) : (
                     <AnimatePresence>
-                    {savedBatches.map((batch, idx) => (
+                    {savedBatches.map((batch, idx) => {
+                        // Calcula o tamanho da aposta para exibir no card
+                        const sizes = batch.games.map(g => g.numbers.length);
+                        const uniqueSizes = Array.from(new Set(sizes));
+                        const sizeLabel = uniqueSizes.length === 1 
+                            ? `${uniqueSizes[0]} Dz` 
+                            : (uniqueSizes.length > 1 ? 'Misto' : '');
+                        
+                        const sizeCount = uniqueSizes.length > 0 ? uniqueSizes[0] : 0;
+                        let sizeColorClass = "bg-slate-700 text-slate-300";
+                        if (sizeCount === 16) sizeColorClass = "bg-blue-600 text-white";
+                        if (sizeCount >= 17) sizeColorClass = "bg-purple-600 text-white";
+                        if (sizeCount >= 19) sizeColorClass = "bg-amber-500 text-black";
+
+                        return (
                         <motion.div 
                             key={batch.id || idx}
                             layout
@@ -1525,8 +1539,15 @@ const App: React.FC = () => {
                         >
                           <div className="flex justify-between items-start mb-3 border-b border-slate-700/50 pb-2">
                             <div>
-                               <div className="text-sm font-bold text-white flex items-center gap-2">
-                                  <span className="uppercase text-[10px] bg-slate-700 px-1.5 rounded text-slate-300 mr-1">{batch.gameType || 'lotofacil'}</span>
+                               <div className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                                  <span className="uppercase text-[10px] bg-slate-700 px-1.5 rounded text-slate-300">{batch.gameType || 'lotofacil'}</span>
+                                  
+                                  {sizeLabel && (
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm ${sizeColorClass}`}>
+                                          {sizeLabel}
+                                      </span>
+                                  )}
+
                                   <span>Conc: {batch.targetConcurso}</span>
                                   {latestResult && batch.gameType === activeGame.id && latestResult.concurso === batch.targetConcurso && (
                                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold">Atual</span>
@@ -1536,7 +1557,7 @@ const App: React.FC = () => {
                             </div>
                             <button 
                               type="button"
-                              onClick={(e) => handleDeleteBatch(e, batch.id)} 
+                              onClick={(e) => handleRequestDeleteBatch(e, batch.id)} 
                               className={`${deleteConfirmBatchId === batch.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'} border border-red-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95`}
                             >
                               <span>🗑️</span> {deleteConfirmBatchId === batch.id ? 'Confirmar?' : 'Apagar'}
@@ -1610,7 +1631,8 @@ const App: React.FC = () => {
                             </AnimatePresence>
                           </div>
                         </motion.div>
-                    ))
+                    );
+                    })
                     }
                     </AnimatePresence>
                   )}

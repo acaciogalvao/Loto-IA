@@ -17,6 +17,11 @@ export const saveBets = (
   
   const existingBatches = getSavedBets();
   
+  if (gamesInput.length === 0) return existingBatches;
+
+  // Determina o tamanho da aposta deste lote (assumindo que o gerador gera lotes uniformes)
+  const incomingSize = gamesInput[0].numbers.length;
+
   // 1. Preparar os novos jogos (garantir ordenação para comparação consistente)
   const incomingGames = gamesInput.map(g => ({
       ...g,
@@ -38,8 +43,19 @@ export const saveBets = (
     gameNumber: item.gameNumber
   }));
   
-  // Verifica se já existe um grupo para este concurso E para este tipo de jogo
-  const existingBatchIndex = existingBatches.findIndex(b => b.targetConcurso === targetConcurso && b.gameType === gameType);
+  // Verifica se já existe um grupo para este concurso, este tipo de jogo E COM A MESMA QUANTIDADE DE DEZENAS
+  const existingBatchIndex = existingBatches.findIndex(b => {
+      // Checa concurso e tipo
+      const basicMatch = b.targetConcurso === targetConcurso && b.gameType === gameType;
+      if (!basicMatch) return false;
+
+      // Checa tamanho das dezenas (se o lote já tiver jogos, pega o tamanho do primeiro)
+      if (b.games.length > 0) {
+          return b.games[0].numbers.length === incomingSize;
+      }
+      // Se o lote estiver vazio (ex: usuário apagou jogos individuais), reutiliza
+      return true;
+  });
 
   if (existingBatchIndex >= 0) {
     const currentBatch = existingBatches[existingBatchIndex];
