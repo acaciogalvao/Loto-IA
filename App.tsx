@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { generateCombinations, getStats, generateBalancedMatrix, calculateHotNumbers, getYearsList, GAME_YEAR_STARTS, calculateDetailedStats, filterGamesWithWinners } from './utils/lotteryLogic';
 import { getAiSuggestions, analyzeClosing, generateSmartClosing, getHistoricalBestNumbers } from './services/geminiService';
 import { fetchLatestResult, fetchPastResults, fetchResultsRange, getFullHistoryWithCache } from './services/lotteryService';
 import { saveBets, getSavedBets, deleteBatch, deleteGame } from './services/storageService';
 import NumberBall from './components/NumberBall';
 import CountdownTimer from './components/CountdownTimer';
+import HistoryAnalysisModal from './components/HistoryAnalysisModal';
 import { GAMES, DEFAULT_GAME } from './utils/gameConfig';
 import { AppStatus, AnalysisResult, LotteryResult, TrendResult, HistoricalAnalysis, HistoryCheckResult, PastGameResult, SavedBetBatch, DetailedStats, GameConfig } from './types';
 
@@ -93,19 +95,6 @@ const App: React.FC = () => {
           return acc;
       }, 0);
   }, [generatedGames, activeGame]);
-
-  // FILTRO MEMORIZADO PARA A ANÁLISE HISTÓRICA
-  const filteredAnalysisResults = useMemo(() => {
-      if (analysisResults.length === 0) return [];
-      return analysisResults.filter(game => {
-          // Federal mostra tudo pois a lógica de "pontos" é diferente (faixas)
-          if (activeGame.id === 'federal') return true;
-
-          const prize = game.premiacoes.find(p => p.faixa === analysisTargetPoints);
-          // Retorna apenas se houve ganhadores (> 0)
-          return prize && prize.ganhadores > 0;
-      });
-  }, [analysisResults, analysisTargetPoints, activeGame.id]);
 
   // --- EFFECTS ---
 
@@ -1102,7 +1091,7 @@ const App: React.FC = () => {
           </div>
         ) : null}
 
-        {/* ... (Previous buttons and grid remain same) ... */}
+        {/* Buttons */}
         <div className="grid grid-cols-2 gap-3">
           {activeGame.id !== 'federal' && (
           <button 
@@ -1369,18 +1358,18 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-40 pb-[calc(12px+env(safe-area-inset-bottom))]">
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-lg z-40 safe-area-pb">
         <div className="max-w-lg mx-auto flex gap-3">
-          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600 active:scale-95 transition-transform">Limpar</button>
+          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600">Limpar</button>
           {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
-             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform`} disabled={status !== AppStatus.IDLE}>
+             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg`} disabled={status !== AppStatus.IDLE}>
                {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 
               onClick={handleGenerate}
               disabled={activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection}
-              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white active:scale-95 transition-transform ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
+              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
             >
               {status === AppStatus.GENERATING ? 'Gerando...' : (activeGame.id === 'federal' ? '🎫 Gerar Palpites' : (selectionCount === 0 ? '🎲 Gerar Automático' : 'Gerar Jogos'))}
             </button>
@@ -1388,211 +1377,42 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* MODAL DE RAIO-X HISTÓRICO (DETALHADO POR PONTUAÇÃO) - BOTTOM SHEET ON MOBILE */}
-      {showHistoryAnalysisModal && (
-          <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
-              <div className="bg-slate-900 w-full max-w-2xl max-h-[85vh] sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col overflow-hidden">
-                  
-                  {/* Pull Handle for Mobile */}
-                  <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
-
-                  {/* HEADER */}
-                  <div className={`p-4 bg-gradient-to-r from-${activeGame.color}-900 to-slate-900 border-b border-${activeGame.color}-500/20 flex justify-between items-center`}>
-                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                        <span>🔍</span> 
-                        Raio-X Histórico
-                      </h3>
-                      <button onClick={() => setShowHistoryAnalysisModal(false)} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700 font-bold active:scale-95">✕</button>
-                  </div>
-
-                  {/* CONTROLS */}
-                  <div className="p-4 bg-slate-800/50 border-b border-slate-700 flex flex-col gap-3">
-                      <div className="flex flex-col sm:flex-row gap-3">
-                          <div className="flex-1">
-                              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 block">Ano</label>
-                              <select 
-                                value={analysisYear}
-                                onChange={(e) => setAnalysisYear(Number(e.target.value))}
-                                className="w-full bg-slate-900 text-white border border-slate-600 rounded-lg p-2 text-sm font-bold focus:ring-2 focus:ring-purple-500 outline-none"
-                              >
-                                  {availableYears.map(year => (
-                                      <option key={year} value={year}>{year}</option>
-                                  ))}
-                              </select>
-                          </div>
-                          <div className="flex-1">
-                              <label className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 block">Filtrar Bilhetes Premiados</label>
-                              <select 
-                                value={analysisTargetPoints}
-                                onChange={(e) => setAnalysisTargetPoints(Number(e.target.value))}
-                                className="w-full bg-slate-900 text-white border border-slate-600 rounded-lg p-2 text-sm font-bold focus:ring-2 focus:ring-purple-500 outline-none"
-                              >
-                                  {activeGame.id === 'lotofacil' && (
-                                      <>
-                                        <option value={15}>15 Pontos (Prêmio Máximo)</option>
-                                        <option value={14}>14 Pontos</option>
-                                        <option value={13}>13 Pontos</option>
-                                        <option value={12}>12 Pontos</option>
-                                        <option value={11}>11 Pontos</option>
-                                      </>
-                                  )}
-                                  {activeGame.id === 'megasena' && (
-                                      <>
-                                        <option value={6}>6 Pontos (Sena)</option>
-                                        <option value={5}>5 Pontos (Quina)</option>
-                                        <option value={4}>4 Pontos (Quadra)</option>
-                                      </>
-                                  )}
-                                  {/* Fallback genérico */}
-                                  {!['lotofacil', 'megasena'].includes(activeGame.id) && (
-                                      <option value={activeGame.minSelection}>{activeGame.minSelection} Acertos</option>
-                                  )}
-                              </select>
-                          </div>
-                      </div>
-                      
-                      <button 
-                          onClick={handleRunHistoryAnalysis}
-                          disabled={isAnalysisLoading}
-                          className={`w-full py-2.5 rounded-lg font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2 active:scale-95 ${isAnalysisLoading ? 'bg-slate-700 text-slate-400' : `bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-900/30`}`}
-                      >
-                          {isAnalysisLoading ? 'Buscando...' : '🔍 Buscar Resultados'}
-                      </button>
-                  </div>
-                  
-                  {/* SUMMARY BAR */}
-                  {!isAnalysisLoading && analysisResults.length > 0 && (
-                      <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-xs">
-                          <span className="text-slate-400">
-                              Total filtrado em {analysisYear}: <strong className="text-slate-200">{analysisResults.length}</strong>
-                          </span>
-                          <span className={`font-bold ${filteredAnalysisResults.length > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                              {filteredAnalysisResults.length} sorteios com ganhadores de {analysisTargetPoints} pts
-                          </span>
-                      </div>
-                  )}
-
-                  {/* CONTENT LIST */}
-                  <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px] pb-[calc(20px+env(safe-area-inset-bottom))]">
-                      {isAnalysisLoading ? (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-50 gap-4">
-                             {/* UI Compacta mas com cores vibrantes */}
-                             <div className="relative">
-                                 <div className="w-12 h-12 border-4 border-gray-700 rounded-full"></div>
-                                 <div className="w-12 h-12 border-4 border-yellow-400 rounded-full animate-spin absolute top-0 left-0 border-t-transparent shadow-[0_0_15px_rgba(250,204,21,0.6)]"></div>
-                             </div>
-                             <div className="text-center space-y-1">
-                                 <span className="text-white font-bold text-sm block tracking-wide">BUSCANDO DADOS...</span>
-                                 <span className="text-yellow-400 font-mono text-xl font-bold block">{analysisProgress}%</span>
-                             </div>
-                             <div className="w-48 h-2 bg-gray-800 rounded-full overflow-hidden border border-gray-600">
-                                 <div className="h-full bg-yellow-400 transition-all duration-150 ease-linear shadow-[0_0_10px_rgba(250,204,21,0.8)]" style={{width: `${analysisProgress}%`}}></div>
-                             </div>
-                          </div>
-                      ) : filteredAnalysisResults.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2 min-h-[200px]">
-                              {analysisResults.length === 0 ? (
-                                  <>
-                                    <span className="text-4xl opacity-20">📅</span>
-                                    <p>Clique em "Buscar" para carregar os dados de {analysisYear}.</p>
-                                  </>
-                              ) : (
-                                  <>
-                                    <span className="text-2xl opacity-30">📭</span>
-                                    <p>Nenhum bilhete premiado com <strong>{analysisTargetPoints} pontos</strong> encontrado em {analysisYear}.</p>
-                                  </>
-                              )}
-                          </div>
-                      ) : (
-                          filteredAnalysisResults.map((game) => {
-                              // Encontrar a premiação específica selecionada
-                              const targetPrize = game.premiacoes.find(p => p.faixa === analysisTargetPoints);
-                              
-                              const winners = targetPrize ? targetPrize.ganhadores : 0;
-                              const value = targetPrize ? targetPrize.valor : 0;
-                              const locations = targetPrize ? targetPrize.locais : [];
-
-                              return (
-                                  <div key={game.concurso} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-md group hover:border-slate-500 transition-colors">
-                                      <div className="flex justify-between items-center p-3 border-b border-slate-700/50 bg-black/20">
-                                          <div>
-                                              <span className={`text-sm font-bold text-${activeGame.color}-400`}>Concurso {game.concurso}</span>
-                                              <span className="text-[10px] text-slate-500 ml-2">{game.data}</span>
-                                          </div>
-                                          
-                                          {/* DESTAQUE DA PREMIAÇÃO ESCOLHIDA */}
-                                          <div className={`px-3 py-1 rounded text-xs font-bold border flex flex-col items-end bg-emerald-900/20 border-emerald-500/30 text-emerald-400`}>
-                                              <span>{analysisTargetPoints} Pontos</span>
-                                              <span className="text-[10px] text-emerald-200/70">
-                                                  {winners} ganhador(es)
-                                              </span>
-                                          </div>
-                                      </div>
-                                      
-                                      <div className="p-3">
-                                          <div className="flex flex-wrap gap-1 mb-2">
-                                              {game.dezenas.map(d => (
-                                                  <span key={d} className="w-6 h-6 rounded-full bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center border border-slate-600">
-                                                      {d}
-                                                  </span>
-                                              ))}
-                                          </div>
-                                          
-                                          {value > 0 && (
-                                              <div className="mt-3 pt-3 border-t border-slate-700/50">
-                                                  <div className="flex justify-between items-center gap-2 mb-3">
-                                                      <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Prêmio por aposta</span>
-                                                      <span className="text-sm font-mono font-bold text-emerald-300 bg-emerald-900/30 px-2 py-0.5 rounded">
-                                                          {value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                                      </span>
-                                                  </div>
-                                                  
-                                                  {/* LISTA DE CIDADES GANHADORAS (VISUALIZAÇÃO APRIMORADA) */}
-                                                  {locations && locations.length > 0 ? (
-                                                      <div className="bg-slate-900/80 rounded-lg p-3 border border-slate-600 shadow-inner">
-                                                          <span className="text-[10px] text-yellow-500 uppercase font-extrabold block mb-2 flex items-center gap-1 border-b border-slate-700 pb-1">
-                                                              <span>🌍</span> Cidades Ganhadoras:
-                                                          </span>
-                                                          <div className="flex flex-wrap gap-2">
-                                                              {locations.map((loc, i) => (
-                                                                  <div key={i} className="text-[11px] bg-blue-600/20 border border-blue-500/40 text-blue-100 px-2 py-1 rounded flex items-center gap-1.5 shadow-sm hover:bg-blue-600/30 transition-colors">
-                                                                     <span className="text-blue-400">📍</span>
-                                                                     <span className="font-bold">{loc.cidade}</span>
-                                                                     <span className="text-blue-300 font-normal">({loc.uf})</span>
-                                                                     {loc.ganhadores > 1 && <span className="text-[9px] bg-white/20 px-1.5 rounded-full text-white font-bold ml-1">x{loc.ganhadores}</span>}
-                                                                  </div>
-                                                              ))}
-                                                          </div>
-                                                      </div>
-                                                  ) : (
-                                                      winners > 0 && <div className="text-[10px] text-slate-500 italic mt-1 pl-1 border-l-2 border-slate-700 py-1 bg-black/10">
-                                                          📍 Cidades não informadas pela API para este concurso.
-                                                      </div>
-                                                  )}
-                                              </div>
-                                          )}
-                                      </div>
-                                  </div>
-                              );
-                          })
-                      )}
-                  </div>
-              </div>
-          </div>
-      )}
+      <AnimatePresence>
+        <HistoryAnalysisModal 
+          isOpen={showHistoryAnalysisModal}
+          onClose={() => setShowHistoryAnalysisModal(false)}
+          activeGame={activeGame}
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
+          analysisTargetPoints={analysisTargetPoints}
+          setAnalysisTargetPoints={setAnalysisTargetPoints}
+          availableYears={availableYears}
+          onRunAnalysis={handleRunHistoryAnalysis}
+          isAnalysisLoading={isAnalysisLoading}
+          analysisProgress={analysisProgress}
+          analysisResults={analysisResults}
+        />
+      </AnimatePresence>
 
       {renderGameInfo()}
 
       {renderGameDetails()}
 
-      {/* Saved Games Modal - BOTTOM SHEET ON MOBILE */}
+      {/* Saved Games Modal - MOVED TO END WITH HIGHER Z-INDEX */}
+      <AnimatePresence>
       {showSavedGamesModal && (
           <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-             <div className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col">
+             <motion.div 
+               initial={{ y: "100%" }}
+               animate={{ y: 0 }}
+               exit={{ y: "100%" }}
+               transition={{ type: "spring", damping: 25, stiffness: 300 }}
+               className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border border-slate-700 shadow-2xl flex flex-col"
+             >
                 <div className="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900">
                    <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
-                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold active:scale-95">✕</button>
+                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))]">
                   {savedBatches.length === 0 ? (
@@ -1671,7 +1491,7 @@ const App: React.FC = () => {
                                            {statusLabel}
                                            <button 
                                             onClick={(e) => handleDeleteSpecificGame(e, batch.id, gameObj.id)}
-                                            className="text-slate-600 hover:text-red-400 font-bold px-1 w-6 h-6 flex items-center justify-center"
+                                            className="text-slate-600 hover:text-red-400 font-bold px-1"
                                            >✕</button>
                                        </div>
                                    </div>
@@ -1683,9 +1503,10 @@ const App: React.FC = () => {
                     ))
                   )}
                 </div>
-             </div>
+             </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
     </div>
   );
