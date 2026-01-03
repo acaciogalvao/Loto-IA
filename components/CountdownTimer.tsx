@@ -19,15 +19,13 @@ const CountdownTimer: React.FC<CountdownTimerProps> = ({ targetDateStr }) => {
     if (!targetDateStr) return;
 
     const calculateTimeLeft = () => {
-      // Parse DD/MM/YYYY
       const parts = targetDateStr.split('/');
       if (parts.length !== 3) return;
       
       const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+      const month = parseInt(parts[1], 10) - 1; 
       const year = parseInt(parts[2], 10);
 
-      // Set target to 20:00:00 of that day (Standard Lotofácil time)
       const targetDate = new Date(year, month, day, 20, 0, 0);
       const now = new Date();
       const difference = targetDate.getTime() - now.getTime();

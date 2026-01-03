@@ -19,16 +19,13 @@ export const saveBets = (
   
   if (gamesInput.length === 0) return existingBatches;
 
-  // Determina o tamanho da aposta deste lote (assumindo que o gerador gera lotes uniformes)
   const incomingSize = gamesInput[0].numbers.length;
 
-  // 1. Preparar os novos jogos (garantir ordenação para comparação consistente)
   const incomingGames = gamesInput.map(g => ({
       ...g,
       numbers: [...g.numbers].sort((a, b) => a - b)
   }));
 
-  // 2. Remover duplicatas INTERNAS do input (caso o gerador tenha criado repetidos no mesmo lote)
   const seenInInput = new Set<string>();
   const distinctIncomingGames = incomingGames.filter(g => {
       const signature = JSON.stringify(g.numbers);
@@ -43,24 +40,19 @@ export const saveBets = (
     gameNumber: item.gameNumber
   }));
   
-  // Verifica se já existe um grupo para este concurso, este tipo de jogo E COM A MESMA QUANTIDADE DE DEZENAS
   const existingBatchIndex = existingBatches.findIndex(b => {
-      // Checa concurso e tipo
       const basicMatch = b.targetConcurso === targetConcurso && b.gameType === gameType;
       if (!basicMatch) return false;
 
-      // Checa tamanho das dezenas (se o lote já tiver jogos, pega o tamanho do primeiro)
       if (b.games.length > 0) {
           return b.games[0].numbers.length === incomingSize;
       }
-      // Se o lote estiver vazio (ex: usuário apagou jogos individuais), reutiliza
       return true;
   });
 
   if (existingBatchIndex >= 0) {
     const currentBatch = existingBatches[existingBatchIndex];
     
-    // 3. Remover duplicatas contra o BANCO DE DADOS (o que já está salvo neste grupo)
     const existingSignatures = new Set(
         currentBatch.games.map(g => JSON.stringify([...g.numbers].sort((a, b) => a - b)))
     );
@@ -75,7 +67,6 @@ export const saveBets = (
     }
     existingBatches[existingBatchIndex] = currentBatch;
   } else {
-    // Cria novo lote se não existir
     const newBatch: SavedBetBatch = {
       id: generateId(),
       createdAt: new Date().toLocaleDateString('pt-BR'),
@@ -92,7 +83,6 @@ export const saveBets = (
       console.error("Erro crítico: Armazenamento cheio", e);
       alert("Atenção: O armazenamento do navegador está cheio.");
       
-      // Fallback de emergência
       if (existingBatches.length > 1) {
           try {
              const emergencyBatches = [...existingBatches];
@@ -122,7 +112,6 @@ export const getSavedBets = (): SavedBetBatch[] => {
     let hasChanges = false;
     
     const migratedData: SavedBetBatch[] = parsed.map(batch => {
-      // FORÇA O ID SER STRING E GERA SE NÃO EXISTIR
       const batchId = batch.id ? String(batch.id) : generateId();
       if (!batch.id || typeof batch.id !== 'string') hasChanges = true;
 
@@ -177,7 +166,6 @@ export const syncBets = (batches: SavedBetBatch[]) => {
 
 export const deleteBatch = (batchId: string): SavedBetBatch[] => {
   const batches = getSavedBets();
-  // Converte ambos para string para garantir comparação correta (caso venha número do legado)
   const targetId = String(batchId);
   const updatedBatches = batches.filter(b => String(b.id) !== targetId);
   syncBets(updatedBatches);

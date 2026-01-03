@@ -1,14 +1,8 @@
 import { PastGameResult, DetailedStats, GameConfig } from "../types";
 
-/**
- * Combinatorial generator.
- * AMPLIFICADO: Aumentado o limite para permitir geração massiva em memória (Virtual DB)
- */
 export const generateCombinations = (sourceNumbers: number[], combinationSize: number): number[][] => {
   const result: number[][] = [];
   const sortedSource = [...sourceNumbers].sort((a, b) => a - b);
-  // Limite de segurança aumentado para 500.000 para permitir "Banco de Dados Virtual"
-  // O navegador aguenta processar isso na memória, só não aguenta renderizar no HTML.
   const MAX_COMBINATIONS = 500000;
   
   function combine(start: number, currentCombo: number[]) {
@@ -55,7 +49,6 @@ export const generateBalancedMatrix = (sourceNumbers: number[], totalGames: numb
   for (let g = 0; g < totalGames; g++) {
     const gameSet = new Set<number>();
     
-    // Safety break
     let safety = 0;
     while (gameSet.size < gameSize && safety < 1000) {
       safety++;
@@ -81,17 +74,11 @@ export const generateBalancedMatrix = (sourceNumbers: number[], totalGames: numb
   return games;
 };
 
-/**
- * Filtra o histórico para manter apenas jogos que tiveram ganhadores na faixa principal (não acumulados).
- * Baseia-se no fato de que 'premiacoes[0]' é sempre a faixa principal devido à ordenação na API.
- */
 export const filterGamesWithWinners = (history: PastGameResult[]): PastGameResult[] => {
   return history.filter(game => {
-    // Se a lista de premiações existir e o primeiro item (maior faixa) tiver ganhadores > 0
     if (game.premiacoes && game.premiacoes.length > 0) {
         return game.premiacoes[0].ganhadores > 0;
     }
-    // Fallback: se não tiver dados de premiação, assume que é válido para não zerar a lista em APIs limitadas
     return true; 
   });
 };
@@ -117,8 +104,6 @@ export const calculateHotNumbers = (pastResults: PastGameResult[], topN: number 
 
   return sortedNumbers;
 };
-
-// --- MATH & STATS HELPERS ---
 
 const PRIMES = new Set([
   2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97
@@ -167,7 +152,6 @@ export const getStats = (game: number[]) => {
 };
 
 export const calculateDetailedStats = (numbers: number[], previousNumbers: number[] | undefined, gameConfig: GameConfig): DetailedStats => {
-  // Federal não tem estatísticas complexas de grid
   if (gameConfig.id === 'federal') {
       return {
           pares: 0, impares: 0, soma: 0, media: '-', desvioPadrao: '-',
@@ -212,82 +196,48 @@ export const calculateDetailedStats = (numbers: number[], previousNumbers: numbe
   };
 };
 
-/**
- * --- SISTEMA DE PONTUAÇÃO (AI FILTER) ---
- * Analisa um jogo e dá uma nota de 0 a 100 baseada na probabilidade estatística de ser premiado.
- * AGORA EXPORTADA PARA USO NA UI
- */
 export const calculateGameScore = (game: number[], gameConfig: GameConfig, previousNumbers?: number[]): number => {
-    let score = 95; // Base alta, penaliza desvios
+    let score = 95; 
     const stats = calculateDetailedStats(game, previousNumbers, gameConfig);
 
-    // 1. ANÁLISE LOTOFÁCIL (Padrão de Ouro)
     if (gameConfig.id === 'lotofacil') {
-        // Pares/Ímpares (Ideal: 7/8 ou 8/7)
         if (stats.impares < 5 || stats.impares > 10) score -= 25;
         if (stats.impares === 7 || stats.impares === 8) score += 5;
-
-        // Soma (Ideal: 180 a 220)
         if (stats.soma < 170 || stats.soma > 230) score -= 15;
         if (stats.soma >= 190 && stats.soma <= 210) score += 5;
-
-        // Primos (Ideal: 4 a 6)
         if (stats.primos < 3 || stats.primos > 7) score -= 10;
-
-        // Repetidos (Ideal: 8 a 10)
         if (typeof stats.repetidos === 'number') {
             if (stats.repetidos < 7 || stats.repetidos > 11) score -= 15;
             if (stats.repetidos >= 8 && stats.repetidos <= 10) score += 5;
         }
-    }
-    
-    // 2. ANÁLISE MEGA SENA
-    else if (gameConfig.id === 'megasena') {
-        // Pares (Ideal 3/3 ou 4/2)
+    } else if (gameConfig.id === 'megasena') {
         if (stats.pares < 2 || stats.pares > 4) score -= 15;
-        // Soma (Ideal 150-250)
         if (stats.soma < 120 || stats.soma > 280) score -= 15;
     }
 
-    // Normaliza para 1-99%
     const finalScore = Math.min(99, Math.max(40, score));
-    // Adiciona uma pequena variância determinística baseada na soma para não ficarem todos iguais visualmente
     const variance = (stats.soma % 5); 
-    
     return Math.min(99, finalScore - variance);
 };
 
-/**
- * FILTRO INTELIGENTE
- * Recebe milhares de jogos (Virtual DB) e retorna apenas os melhores.
- */
 export const filterBestGames = (
   allGames: number[][], 
   gameConfig: GameConfig, 
   previousNumbers: number[] | undefined,
   limit: number = 20
 ): { games: number[][], originalCount: number } => {
-    
-    // 1. Calcula score para todos
     const scoredGames = allGames.map(game => ({
         game,
         score: calculateGameScore(game, gameConfig, previousNumbers)
     }));
-
-    // 2. Ordena pelos melhores scores
     scoredGames.sort((a, b) => b.score - a.score);
-
-    // 3. Pega os 'limit' melhores
     const topGames = scoredGames.slice(0, limit).map(sg => sg.game);
-
     return {
         games: topGames,
         originalCount: allGames.length
     };
 };
 
-
-// --- YEAR MAPPING ---
 export const GAME_YEAR_STARTS: Record<string, Record<number, number>> = {
   lotofacil: {
     2003: 1, 2004: 18, 2005: 71, 2006: 124, 2007: 177, 2008: 285, 2009: 393, 2010: 501, 2011: 609, 2012: 717,
@@ -338,7 +288,6 @@ export const GAME_YEAR_STARTS: Record<string, Record<number, number>> = {
   }
 };
 
-// Export for compatibility
 export const LOTOFACIL_YEAR_START = GAME_YEAR_STARTS.lotofacil;
 
 export const getYearsList = (startYear: number = 2003) => {

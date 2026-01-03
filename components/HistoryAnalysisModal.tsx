@@ -42,7 +42,6 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
     });
   }, [analysisResults, analysisTargetPoints, activeGame.id]);
 
-  // Framer Motion Variants for Bottom Sheet
   const variants = {
     hidden: { y: "100%", opacity: 0 },
     visible: { y: 0, opacity: 1, transition: { type: "spring", damping: 25, stiffness: 300 } },
@@ -69,12 +68,10 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
         className="bg-slate-900 w-full max-w-2xl max-h-[85vh] sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col overflow-hidden"
       >
         
-        {/* Pull Handle for Mobile - Área de "Pega" maior para facilitar o gesto */}
         <div className="w-full pt-3 pb-1 cursor-grab active:cursor-grabbing bg-slate-900 flex justify-center" onClick={onClose}>
             <div className="w-12 h-1.5 bg-slate-700 rounded-full"></div>
         </div>
 
-        {/* HEADER */}
         <div className={`p-4 bg-gradient-to-r from-${activeGame.color}-900 to-slate-900 border-b border-${activeGame.color}-500/20 flex justify-between items-center`}>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <span>🔍</span> 
@@ -83,7 +80,6 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700 font-bold active:scale-95">✕</button>
         </div>
 
-        {/* CONTROLS */}
         <div className="p-4 bg-slate-800/50 border-b border-slate-700 flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1">
@@ -137,7 +133,6 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
             </button>
         </div>
         
-        {/* SUMMARY BAR */}
         {!isAnalysisLoading && analysisResults.length > 0 && (
             <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex justify-between items-center text-xs">
                 <span className="text-slate-400">
@@ -149,7 +144,6 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
             </div>
         )}
 
-        {/* CONTENT LIST */}
         <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px] pb-[calc(20px+env(safe-area-inset-bottom))] cursor-auto" onPointerDownCapture={e => e.stopPropagation()}>
             {isAnalysisLoading ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-50 gap-4">
