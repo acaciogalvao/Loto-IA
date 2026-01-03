@@ -81,6 +81,21 @@ export const generateBalancedMatrix = (sourceNumbers: number[], totalGames: numb
   return games;
 };
 
+/**
+ * Filtra o histórico para manter apenas jogos que tiveram ganhadores na faixa principal (não acumulados).
+ * Baseia-se no fato de que 'premiacoes[0]' é sempre a faixa principal devido à ordenação na API.
+ */
+export const filterGamesWithWinners = (history: PastGameResult[]): PastGameResult[] => {
+  return history.filter(game => {
+    // Se a lista de premiações existir e o primeiro item (maior faixa) tiver ganhadores > 0
+    if (game.premiacoes && game.premiacoes.length > 0) {
+        return game.premiacoes[0].ganhadores > 0;
+    }
+    // Fallback: se não tiver dados de premiação, assume que é válido para não zerar a lista em APIs limitadas
+    return true; 
+  });
+};
+
 export const calculateHotNumbers = (pastResults: PastGameResult[], topN: number = 20): number[] => {
   const frequency: Record<number, number> = {};
 
@@ -144,7 +159,7 @@ const getMolduraSet = (game: GameConfig): Set<number> => {
   return set;
 };
 
-export const getStats = (game: number[]): { evens: number; odds: number; sum: number } => {
+export const getStats = (game: number[]) => {
   const evens = game.filter(n => n % 2 === 0).length;
   const odds = game.length - evens;
   const sum = game.reduce((a, b) => a + b, 0);
@@ -152,6 +167,14 @@ export const getStats = (game: number[]): { evens: number; odds: number; sum: nu
 };
 
 export const calculateDetailedStats = (numbers: number[], previousNumbers: number[] | undefined, gameConfig: GameConfig): DetailedStats => {
+  // Federal não tem estatísticas complexas de grid
+  if (gameConfig.id === 'federal') {
+      return {
+          pares: 0, impares: 0, soma: 0, media: '-', desvioPadrao: '-',
+          primos: 0, fibonacci: 0, multiplos3: 0, moldura: 0, centro: 0, triangulares: 0, repetidos: '-'
+      };
+  }
+
   const isSuperSete = gameConfig.id === 'supersete';
   const values = isSuperSete ? numbers.map(n => n % 10) : numbers.map(Number);
   
@@ -308,6 +331,10 @@ export const GAME_YEAR_STARTS: Record<string, Record<number, number>> = {
   },
   supersete: {
     2020: 1, 2021: 39, 2022: 190, 2023: 342, 2024: 492, 2025: 642
+  },
+  federal: {
+      2015: 1, 2016: 5037, 2017: 5142, 2018: 5246, 2019: 5350, 2020: 5455, 
+      2021: 5527, 2022: 5627, 2023: 5728, 2024: 5829, 2025: 5930
   }
 };
 

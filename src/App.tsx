@@ -1,18 +1,28 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { generateCombinations, getStats, generateBalancedMatrix, calculateHotNumbers, getYearsList, LOTOFACIL_YEAR_START, calculateDetailedStats } from './utils/lotteryLogic';
-import { getAiSuggestions, analyzeClosing, getLotteryTrends, generateSmartClosing, getHistoricalSimulation, getHistoricalBestNumbers } from './services/geminiService';
-import { fetchLatestResult, fetchPastResults, fetchResultsRange } from './services/lotteryService';
-import { saveBets, getSavedBets, syncBets, deleteBatch, deleteGame } from './services/storageService';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { AnimatePresence, motion, PanInfo } from 'framer-motion';
+import { generateCombinations, getStats, generateBalancedMatrix, calculateHotNumbers, getYearsList, GAME_YEAR_STARTS, calculateDetailedStats, filterGamesWithWinners } from './utils/lotteryLogic';
+import { getAiSuggestions, analyzeClosing, generateSmartClosing, getHistoricalBestNumbers } from './services/geminiService';
+import { fetchLatestResult, fetchPastResults, fetchResultsRange, getFullHistoryWithCache } from './services/lotteryService';
+import { saveBets, getSavedBets, deleteBatch, deleteGame } from './services/storageService';
 import NumberBall from './components/NumberBall';
 import CountdownTimer from './components/CountdownTimer';
-import { GAMES } from './utils/gameConfig';
-import { AppStatus, AnalysisResult, LotteryResult, TrendResult, HistoricalAnalysis, HistoryCheckResult, PastGameResult, SavedBetBatch, PrizeEntry, DetailedStats } from './types';
+import HistoryAnalysisModal from './components/HistoryAnalysisModal';
+import { GAMES, DEFAULT_GAME } from './utils/gameConfig';
+import { AppStatus, AnalysisResult, LotteryResult, TrendResult, HistoricalAnalysis, HistoryCheckResult, PastGameResult, SavedBetBatch, DetailedStats, GameConfig } from './types';
 
-const TOTAL_NUMBERS = 25;
-const MIN_SELECTION = 15;
-const MAX_SELECTION = 21; 
+// --- HAPTIC FEEDBACK HELPER ---
+const vibrate = (ms: number = 10) => {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate(ms);
+  }
+};
 
 const App: React.FC = () => {
+  // --- STATE MANAGEMENT ---
+  const [activeGame, setActiveGame] = useState<GameConfig>(DEFAULT_GAME);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false); 
+
   const [selectedNumbers, setSelectedNumbers] = useState<Set<number>>(new Set());
   const [generatedGames, setGeneratedGames] = useState<number[][]>([]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
@@ -24,22 +34,33 @@ const App: React.FC = () => {
   const [historyCheck, setHistoryCheck] = useState<HistoryCheckResult | null>(null);
   const [isLoadingTrends, setIsLoadingTrends] = useState(false);
   const [isAiOptimized, setIsAiOptimized] = useState(true); 
-  const [historyLimit, setHistoryLimit] = useState(20);
   
-  // Galleries State
-  const [showGalleriesModal, setShowGalleriesModal] = useState(false);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [winningHistory, setWinningHistory] = useState<PastGameResult[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyCursor, setHistoryCursor] = useState<number>(1); 
+  // Generation Settings
+  const [generationLimit, setGenerationLimit] = useState<number | string>(10); // Permitir string para digitação
+  const [gameSize, setGameSize] = useState<number>(DEFAULT_GAME.minSelection);
+
+  // Progress State for long operations
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
   
+  // ANÁLISE HISTÓRICA DETALHADA (Raio-X)
+  const [showHistoryAnalysisModal, setShowHistoryAnalysisModal] = useState(false);
+  const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear());
+  const [analysisTargetPoints, setAnalysisTargetPoints] = useState<number>(15); // Padrão 15 pontos
+  const [analysisResults, setAnalysisResults] = useState<PastGameResult[]>([]);
+  const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<number>(0); // Barra de progresso da análise
+
   // GAME DETAIL STATE
   const [viewingGame, setViewingGame] = useState<PastGameResult | null>(null);
 
   // Saved Games State
   const [savedBatches, setSavedBatches] = useState<SavedBetBatch[]>([]);
   const [showSavedGamesModal, setShowSavedGamesModal] = useState(false);
-  const [notification, setNotification] = useState<{msg: string, type: 'success' | 'info'} | null>(null);
+  const [notification, setNotification] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+  
+  // DELETE CONFIRMATION STATES
+  const [deleteConfirmBatchId, setDeleteConfirmBatchId] = useState<string | null>(null); // ID do lote pendente
+  const [deleteConfirmGameId, setDeleteConfirmGameId] = useState<string | null>(null); // ID do jogo individual pendente
 
   // Clipboard state
   const [copiedGameIndex, setCopiedGameIndex] = useState<number | null>(null);
@@ -47,36 +68,103 @@ const App: React.FC = () => {
   // EXPANDED STATS STATE
   const [expandedGameStats, setExpandedGameStats] = useState<number | null>(null);
 
-  const allNumbers = Array.from({ length: TOTAL_NUMBERS }, (_, i) => i + 1);
-  const availableYears = useMemo(() => getYearsList(2003), []);
+  // Derived constants based on activeGame
+  const allNumbers = useMemo(() => {
+    if (activeGame.id === 'supersete') {
+        return Array.from({ length: 70 }, (_, i) => i); 
+    }
+    if (activeGame.id === 'federal') {
+        return [];
+    }
+    return Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+  }, [activeGame]);
 
-  // Fetch lottery result on mount and load saved games
+  const availableYears = useMemo(() => getYearsList(activeGame.startYear), [activeGame]);
+
+  // Custo Total dos Jogos Gerados
+  const totalGenerationCost = useMemo(() => {
+      if (activeGame.id === 'federal' || generatedGames.length === 0) return 0;
+      return generatedGames.reduce((acc, game) => {
+          const qty = game.length;
+          // Procura na tabela de preços pelo número de dezenas
+          const entry = activeGame.priceTable.find(p => p.quantity == qty);
+          if (entry && typeof entry.price === 'number') {
+              return acc + entry.price;
+          }
+          // Fallback para o valor da aposta mínima se não encontrar exato (ex: fechamentos complexos)
+          if (qty === activeGame.minSelection && activeGame.priceTable.length > 0) {
+               const minPrice = activeGame.priceTable[0].price;
+               if (typeof minPrice === 'number') return acc + minPrice;
+          }
+          return acc;
+      }, 0);
+  }, [generatedGames, activeGame]);
+
+  // --- EFFECTS ---
+
   useEffect(() => {
+    handleClear();
     loadLatestResult();
     const loaded = getSavedBets();
     setSavedBatches(loaded);
-  }, []);
+    // Garante reset do gameSize ao trocar de jogo para evitar custos acidentais altos
+    setGameSize(activeGame.minSelection);
+    // Reset Analysis Target Points default
+    if (activeGame.id === 'lotofacil') setAnalysisTargetPoints(15);
+    else if (activeGame.id === 'megasena') setAnalysisTargetPoints(6);
+    else if (activeGame.id === 'quina') setAnalysisTargetPoints(5);
+    else setAnalysisTargetPoints(activeGame.minSelection);
+  }, [activeGame.id]);
 
-  // Check for wins automatically when result and saved games are available
   useEffect(() => {
     if (latestResult && savedBatches.length > 0) {
       checkAutomaticWins(latestResult, savedBatches);
     }
   }, [latestResult, savedBatches.length]);
 
+  // --- LOGIC ---
+
   const loadLatestResult = () => {
     setIsResultLoading(true);
-    fetchLatestResult('lotofacil')
+    // Não limpa latestResult imediatamente para evitar "flicker"
+    fetchLatestResult(activeGame.apiSlug)
       .then((res) => {
-        setLatestResult(res);
+        if (res) {
+          setLatestResult(res);
+        } else {
+            console.warn("API retornou vazio, mantendo dados anteriores se existirem.");
+            setNotification({ msg: "Modo Offline: Resultados não atualizados.", type: 'info' });
+        }
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+          console.error(err);
+          setNotification({ msg: "Erro de conexão. Verifique sua internet.", type: 'error' });
+      })
       .finally(() => setIsResultLoading(false));
   };
 
+  const handleGameChange = (gameId: string) => {
+    vibrate(15);
+    const newGame = GAMES[gameId];
+    if (newGame) {
+        setActiveGame(newGame);
+        setIsMenuOpen(false);
+    }
+  };
+
+  const getPriceForQty = (qty: number) => {
+    const entry = activeGame.priceTable.find(p => p.quantity == qty);
+    if (entry && typeof entry.price === 'number') return entry.price;
+    return 0;
+  };
+
   const checkAutomaticWins = (result: LotteryResult, batches: SavedBetBatch[]) => {
+    if (activeGame.id === 'federal') return;
+
     let maxHits = 0;
-    batches.forEach(batch => {
+    const relevantBatches = batches.filter(b => b.gameType === activeGame.id || (!b.gameType && activeGame.id === 'lotofacil'));
+
+    relevantBatches.forEach(batch => {
       if (batch.targetConcurso === result.concurso) {
         batch.games.forEach(gameObj => {
           const resultSet = new Set(result.dezenas.map(d => parseInt(d, 10)));
@@ -88,9 +176,16 @@ const App: React.FC = () => {
       }
     });
 
-    if (maxHits >= 11) {
+    let threshold = 0;
+    if (activeGame.id === 'lotofacil') threshold = 11;
+    else if (activeGame.id === 'megasena') threshold = 4;
+    else if (activeGame.id === 'quina') threshold = 2;
+    else if (activeGame.id === 'lotomania') threshold = 15;
+    
+    if (maxHits >= threshold && threshold > 0) {
+      vibrate(500); // Vibração longa para vitória
       setNotification({
-        msg: `🎉 Parabéns! O sistema detectou ${maxHits} pontos nos seus jogos salvos do concurso ${result.concurso}!`,
+        msg: `🎉 Parabéns! O sistema detectou ${maxHits} pontos nos seus jogos salvos da ${activeGame.name}!`,
         type: 'success'
       });
       setTimeout(() => {
@@ -99,21 +194,48 @@ const App: React.FC = () => {
     }
   };
 
-  // Memoize parsed result numbers
   const resultNumbers = useMemo<Set<number>>(() => {
     if (!latestResult) return new Set<number>();
+    if (activeGame.id === 'federal') return new Set();
     return new Set(latestResult.dezenas.map(d => parseInt(d, 10)));
-  }, [latestResult]);
+  }, [latestResult, activeGame.id]);
 
   const toggleNumber = (num: number) => {
+    vibrate(8); // Vibração curta ao tocar
     const newSelection = new Set(selectedNumbers);
     if (newSelection.has(num)) {
       newSelection.delete(num);
     } else {
-      if (newSelection.size >= MAX_SELECTION) return;
+      if (newSelection.size >= activeGame.maxSelection) {
+          vibrate(50); // Vibração de erro
+          setNotification({ msg: `Máximo de ${activeGame.maxSelection} números para este fechamento.`, type: 'info' });
+          setTimeout(() => setNotification(null), 2000);
+          return;
+      }
+      if (activeGame.id === 'supersete') {
+          const colIndex = Math.floor(Number(num) / 10);
+          const currentInCol = Array.from(newSelection).filter(n => Math.floor(Number(n) / 10) === colIndex).length;
+          if (currentInCol >= 3) {
+             vibrate(50);
+             setNotification({ msg: `Máximo de 3 números por coluna no Super Sete.`, type: 'info' });
+             setTimeout(() => setNotification(null), 2000);
+             return;
+          }
+      }
       newSelection.add(num);
     }
     setSelectedNumbers(newSelection);
+    
+    // --- SINCRONIZAÇÃO AUTOMÁTICA DO TAMANHO DO JOGO ---
+    const newCount = newSelection.size;
+    // Só atualiza se estiver dentro da faixa permitida da loteria
+    if (newCount >= activeGame.minSelection && newCount <= activeGame.maxSelection) {
+        setGameSize(newCount);
+    } else if (newCount < activeGame.minSelection) {
+        // Se ficar abaixo do mínimo (ex: limpou tudo), volta para o padrão mínimo
+        setGameSize(activeGame.minSelection);
+    }
+    
     if (generatedGames.length > 0) {
       setGeneratedGames([]);
       setAnalysis(null);
@@ -124,7 +246,42 @@ const App: React.FC = () => {
     }
   };
 
+  // NOVA FUNÇÃO: Troca o tamanho e preenche automaticamente
+  const handleGameSizeChangeWithAutoSelect = async (newSize: number) => {
+      vibrate(10);
+      setGameSize(newSize);
+      
+      // Feedback visual imediato
+      setNotification({ msg: `Selecionando ${newSize} melhores números...`, type: 'info' });
+
+      try {
+          let pool: number[] = [];
+          
+          if (latestResult) {
+              // Busca histórico para pegar os quentes
+              const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 50);
+              pool = calculateHotNumbers(pastResults, newSize);
+          } else {
+              // Fallback aleatório
+              pool = Array.from({length: activeGame.totalNumbers}, (_, i) => i + 1)
+                  .sort(() => 0.5 - Math.random())
+                  .slice(0, newSize);
+          }
+          
+          // Ordena e seleciona
+          pool.sort((a, b) => a - b);
+          setSelectedNumbers(new Set(pool));
+          
+          setNotification({ msg: `${newSize} números selecionados automaticamente!`, type: 'success' });
+          setTimeout(() => setNotification(null), 1500);
+
+      } catch (e) {
+          console.error("Erro no auto-select", e);
+      }
+  };
+
   const handleClear = () => {
+    vibrate(20);
     setSelectedNumbers(new Set());
     setGeneratedGames([]);
     setAnalysis(null);
@@ -133,142 +290,365 @@ const App: React.FC = () => {
     setExpandedGameStats(null);
     setStatus(AppStatus.IDLE);
     setTrends(null);
+    setLoadingProgress(0);
+    setGameSize(activeGame.minSelection); // Reseta para o tamanho mínimo
   };
 
   const toggleGameStats = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
+    vibrate(10);
     setExpandedGameStats(prev => prev === index ? null : index);
   };
 
   const handleGenerateTop200 = async () => {
-    if (!latestResult) return;
-    setStatus(AppStatus.GENERATING);
-    setGeneratedGames([]);
-    setHistoryCheck(null);
-    setExpandedGameStats(null);
-    
-    try {
-      const pastResults = await fetchPastResults('lotofacil', latestResult.concurso, 200);
-      const hotNumbers = calculateHotNumbers(pastResults, 21);
-      setSelectedNumbers(new Set(hotNumbers));
-      const games = generateBalancedMatrix(hotNumbers, 25, 15);
-      
-      setGeneratedGames(games);
-      setStatus(AppStatus.SUCCESS);
-      
-      setNotification({
-        msg: 'Top 21 dezenas dos últimos 200 concursos carregadas!',
-        type: 'success'
-      });
-      setTimeout(() => setNotification(null), 3000);
-
-    } catch (e) {
-      console.error(e);
-      setNotification({ msg: 'Erro ao analisar histórico.', type: 'info' });
-      setStatus(AppStatus.ERROR);
+    vibrate(20);
+    // Proteção se não tiver resultado carregado
+    if (!latestResult) {
+        setNotification({ msg: 'Aguarde o carregamento do último resultado.', type: 'error' });
+        loadLatestResult();
+        return;
     }
-  };
 
-  const handleHistoricalStrategy = async () => {
     setStatus(AppStatus.GENERATING);
     setGeneratedGames([]);
     setHistoryCheck(null);
     setExpandedGameStats(null);
+    setLoadingProgress(0);
+    
+    const limit = Number(generationLimit) || 10;
 
     try {
-      setNotification({ msg: 'Analisando histórico completo desde o concurso #1...', type: 'info' });
-      const historicalNumbers = await getHistoricalBestNumbers('lotofacil', 15);
+      setNotification({ msg: `Sincronizando histórico (Otimizado)...`, type: 'info' });
+
+      const pastResults = await getFullHistoryWithCache(activeGame.apiSlug, latestResult.concurso, (prog) => {
+          setLoadingProgress(prog);
+      });
       
-      if (!historicalNumbers || historicalNumbers.length < 15) {
-        throw new Error("Falha na análise histórica");
-      }
-
-      setSelectedNumbers(new Set(historicalNumbers));
-
-      let games: number[][] = [];
-      try {
-        games = await generateSmartClosing('lotofacil', historicalNumbers, 15);
-      } catch {
-        games = generateBalancedMatrix(historicalNumbers, 25, 15);
-      }
-
+      const winnersOnly = filterGamesWithWinners(pastResults);
+      const hotNumbers = calculateHotNumbers(winnersOnly, activeGame.maxSelection); 
+      
+      const selectionPool = hotNumbers.slice(0, activeGame.maxSelection);
+      setSelectedNumbers(new Set(selectionPool));
+      
+      const games = generateBalancedMatrix(selectionPool, limit, gameSize);
+      
       setGeneratedGames(games);
       setStatus(AppStatus.SUCCESS);
-
+      setLoadingProgress(0);
+      
+      vibrate(100);
       setNotification({
-        msg: 'Fechamento Histórico (Baseado em todos os resultados) gerado!',
+        msg: `Estratégia Padrão Ouro: ${winnersOnly.length} concursos vencedores analisados!`,
         type: 'success'
       });
       setTimeout(() => setNotification(null), 4000);
 
     } catch (e) {
       console.error(e);
-      setNotification({ msg: 'Erro na análise histórica.', type: 'info' });
+      setNotification({ msg: 'Erro ao analisar histórico.', type: 'info' });
       setStatus(AppStatus.ERROR);
+      setLoadingProgress(0);
     }
   };
 
+  // --- NOVA LÓGICA DE ANÁLISE HISTÓRICA COM CACHE ---
+  
+  // Helper para gerar a chave do cache
+  const getAnalysisCacheKey = (year: number) => `lotosmart_analysis_${activeGame.id}_${year}`;
+
+  const handleOpenHistoryAnalysis = () => {
+      vibrate(15);
+      // Apenas abre o modal, limpa resultados e progresso. O usuário deve clicar em buscar.
+      setShowHistoryAnalysisModal(true);
+      setAnalysisResults([]);
+      setAnalysisProgress(0);
+  };
+
+  const handleRunHistoryAnalysis = async () => {
+      vibrate(10);
+      const year = analysisYear;
+      const cacheKey = getAnalysisCacheKey(year);
+      
+      setIsAnalysisLoading(true);
+      setAnalysisResults([]);
+      setAnalysisProgress(5); // Início
+
+      // 1. TENTA CARREGAR DO CACHE LOCAL PRIMEIRO
+      try {
+          const cachedData = localStorage.getItem(cacheKey);
+          if (cachedData) {
+              const parsed = JSON.parse(cachedData);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                  setAnalysisResults(parsed);
+                  setAnalysisProgress(100);
+                  setIsAnalysisLoading(false);
+                  vibrate(50);
+                  setNotification({ msg: `Dados de ${year} carregados do cache!`, type: 'success' });
+                  setTimeout(() => setNotification(null), 1500);
+                  return; // Sai se achou no cache
+              }
+          }
+      } catch (e) {
+          console.warn("Erro ao ler cache de análise", e);
+      }
+
+      // 2. SE NÃO TEM CACHE, BAIXA DA API
+      const yearMap = GAME_YEAR_STARTS[activeGame.id];
+      const startConcurso = yearMap ? yearMap[year] || 1 : 1;
+      let endConcurso = 999999;
+      
+      if (yearMap && yearMap[year + 1]) {
+          endConcurso = yearMap[year + 1] - 1;
+      } else if (latestResult) {
+          endConcurso = latestResult.concurso;
+      }
+
+      if (latestResult && endConcurso > latestResult.concurso) {
+          endConcurso = latestResult.concurso;
+      }
+
+      try {
+          // Busca todos os resultados do range potencial
+          const results = await fetchResultsRange(activeGame.apiSlug, startConcurso, endConcurso, (prog) => {
+              setAnalysisProgress(prog);
+          });
+          
+          // FILTRO RIGOROSO DE DATA
+          const strictYearResults = results.filter(game => {
+              if (!game.data) return false;
+              return game.data.includes(`/${year}`);
+          }).sort((a, b) => b.concurso - a.concurso);
+
+          setAnalysisResults(strictYearResults);
+          
+          // 3. SALVA NO CACHE SE HOUVER RESULTADOS
+          if (strictYearResults.length > 0) {
+              try {
+                  localStorage.setItem(cacheKey, JSON.stringify(strictYearResults));
+              } catch(e) { console.error("Cache cheio na análise", e); }
+          }
+          vibrate(50);
+
+      } catch (e) {
+          console.error("Erro na analise historica", e);
+          setNotification({ msg: "Erro ao buscar histórico do ano.", type: 'error' });
+      } finally {
+          setIsAnalysisLoading(false);
+          setAnalysisProgress(100);
+      }
+  };
+
+  const handleGenerateFederal = () => {
+      vibrate(20);
+      setStatus(AppStatus.GENERATING);
+      const limit = Number(generationLimit) || 5;
+      
+      setTimeout(() => {
+          const games: number[][] = [];
+          for(let i=0; i<limit; i++) {
+              const num = Math.floor(Math.random() * 100000);
+              games.push([num]);
+          }
+          setGeneratedGames(games);
+          setStatus(AppStatus.SUCCESS);
+          vibrate(50);
+          setNotification({msg: "Bilhetes da sorte gerados!", type: 'success'});
+          setTimeout(() => setNotification(null), 2000);
+      }, 500);
+  };
+
   const handleGenerate = async () => {
-    if (selectedNumbers.size < MIN_SELECTION) return;
+    vibrate(20);
+    if (activeGame.id === 'federal') {
+        handleGenerateFederal();
+        return;
+    }
 
     setStatus(AppStatus.GENERATING);
     setHistorySim(null);
     setHistoryCheck(null);
     setExpandedGameStats(null);
     
+    const limit = Number(generationLimit) || 1;
+
     setTimeout(async () => {
       try {
         let finalSelection: number[] = Array.from(selectedNumbers);
-        let wasAutoFilled = false;
+        let games: number[][] = [];
+        let allNumbersPool = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+        
+        // --- CENÁRIO 1: GERAÇÃO AUTOMÁTICA (Sem seleção do usuário) ---
+        if (finalSelection.length === 0) {
+             setNotification({ msg: `Selecionando números automaticamente (Tendências)...`, type: 'info' });
+             
+             // Usa o gameSize atual para definir quantos selecionar
+             let poolSize = gameSize; 
+             if (poolSize < activeGame.minSelection) poolSize = activeGame.minSelection;
 
-        if (finalSelection.length < MAX_SELECTION && latestResult) {
-           try {
-               const pastResults = await fetchPastResults('lotofacil', latestResult.concurso, 25);
-               const hotNumbers = calculateHotNumbers(pastResults);
-               for (const num of hotNumbers) {
-                  if (finalSelection.length >= MAX_SELECTION) break;
-                  if (!selectedNumbers.has(num)) {
-                     finalSelection.push(num);
-                     wasAutoFilled = true;
-                  }
-               }
-               if (wasAutoFilled) {
-                 finalSelection.sort((a, b) => a - b);
+             try {
+                 if (latestResult) {
+                    const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 50);
+                    finalSelection = calculateHotNumbers(pastResults, poolSize);
+                 } 
+                 
+                 // Fallback Garantido se fetch falhar ou retornar vazio
+                 if (finalSelection.length < poolSize) {
+                    const remaining = poolSize - finalSelection.length;
+                    const randomFill = Array.from({length: activeGame.totalNumbers}, (_, i) => i + 1)
+                        .filter(n => !finalSelection.includes(n))
+                        .sort(() => 0.5 - Math.random())
+                        .slice(0, remaining);
+                    finalSelection = [...finalSelection, ...randomFill];
+                 }
+                 
+                 finalSelection.sort((a,b) => a-b);
                  setSelectedNumbers(new Set(finalSelection));
-                 setNotification({
-                    msg: `Completado para 21 dezenas usando números quentes!`,
-                    type: 'success'
-                 });
-                 setTimeout(() => setNotification(null), 2500);
-               }
-           } catch (err) {
-               console.warn("Erro ao buscar tendências para auto-completar", err);
-           }
+             } catch (e) {
+                 console.error("Erro pool auto", e);
+                 const all = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+                 finalSelection = all.sort(() => 0.5 - Math.random()).slice(0, poolSize);
+                 setSelectedNumbers(new Set(finalSelection));
+             }
         }
 
-        let games: number[][] = [];
-        const selectionSize = finalSelection.length;
-        
-        if (isAiOptimized || selectionSize > 18) {
-          try {
-             games = await generateSmartClosing('lotofacil', finalSelection, 15);
-             if (!games || games.length === 0) throw new Error("AI Empty Result");
-          } catch (aiError) {
-             console.warn("AI Generation failed, falling back to Deterministic Balanced Matrix", aiError);
-             games = generateBalancedMatrix(finalSelection, 25, 15);
-          }
-        } else {
-          games = generateCombinations(finalSelection, 15);
+        // --- CENÁRIO 2: AUTO-COMPLETAR SE INSUFICIENTE ---
+        // Se o usuário selecionou menos números que o tamanho do jogo configurado
+        if (finalSelection.length < gameSize && finalSelection.length > 0) {
+             const missing = gameSize - finalSelection.length;
+             setNotification({ msg: `Completando com ${missing} números automáticos...`, type: 'info' });
+             
+             try {
+                 // Tenta usar lógica de números quentes se tiver resultado carregado
+                 if (latestResult) {
+                     const pastResults = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 50);
+                     const hotNumbers = calculateHotNumbers(pastResults, activeGame.totalNumbers);
+                     
+                     for (const num of hotNumbers) {
+                        if (finalSelection.length >= gameSize) break;
+                        if (!selectedNumbers.has(num)) {
+                            finalSelection.push(num);
+                        }
+                     }
+                 }
+                 // Loop de Garantia (caso API falhe ou não preencha tudo)
+                 while(finalSelection.length < gameSize) {
+                     const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
+                     if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
+                 }
+                 
+                 finalSelection.sort((a,b) => a-b);
+                 setSelectedNumbers(new Set(finalSelection));
+             } catch(e) {
+                 // Fallback Totalmente Aleatório
+                 while(finalSelection.length < gameSize) {
+                     const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
+                     if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
+                 }
+             }
+        }
+
+        // --- LÓGICA PRINCIPAL DE GERAÇÃO ---
+        // Agora o gameSize dita o tamanho exato dos jogos gerados.
+        // Se o usuário marcou 16 e gameSize é 16, geramos jogos de 16 dezenas.
+
+        if (finalSelection.length === gameSize) {
+            // Adiciona o Jogo Principal (A escolha do usuário)
+            games.push([...finalSelection].sort((a, b) => a - b));
+
+            // Gera Variações para preencher o limite solicitado, RESPEITANDO O TAMANHO DO JOGO
+            if (limit > 1) {
+                // Busca números "Quentes" fora da seleção do usuário para usar como variáveis de troca
+                let swapPool: number[] = [];
+                try {
+                    const past = await fetchPastResults(activeGame.apiSlug, latestResult?.concurso || 0, 20);
+                    const hot = calculateHotNumbers(past, activeGame.totalNumbers);
+                    swapPool = hot.filter(n => !selectedNumbers.has(n));
+                } catch (e) {
+                    swapPool = allNumbersPool.filter(n => !selectedNumbers.has(n));
+                }
+
+                // Se a pool de troca for pequena, completa com aleatórios
+                if (swapPool.length < 5) {
+                    const remaining = allNumbersPool.filter(n => !selectedNumbers.has(n));
+                    swapPool = [...new Set([...swapPool, ...remaining])];
+                }
+
+                // Gera variações mantendo a maioria dos números do usuário
+                let attempts = 0;
+                while (games.length < limit && attempts < 1000) {
+                    attempts++;
+                    
+                    // Estratégia de Variação Inteligente:
+                    // Mantém ~85% dos números do usuário (fixos), troca ~15% por números quentes de fora
+                    const numToSwap = Math.max(1, Math.floor(gameSize * 0.15)); 
+                    const baseGame = [...finalSelection];
+                    
+                    // Embaralha o jogo base para escolher quais remover aleatoriamente
+                    const shuffledBase = baseGame.sort(() => 0.5 - Math.random());
+                    const keptNumbers = shuffledBase.slice(0, gameSize - numToSwap);
+                    
+                    // Escolhe substitutos da pool externa
+                    const shuffledPool = swapPool.sort(() => 0.5 - Math.random());
+                    const replacements = shuffledPool.slice(0, numToSwap);
+                    
+                    const newGame = [...keptNumbers, ...replacements].sort((a, b) => a - b);
+                    
+                    // Verifica duplicidade básica
+                    const isDuplicate = games.some(g => JSON.stringify(g) === JSON.stringify(newGame));
+                    if (!isDuplicate) {
+                        games.push(newGame);
+                    }
+                }
+            }
+        } 
+        else {
+            // FECHAMENTO CLÁSSICO
+            const useAI = isAiOptimized && finalSelection.length > gameSize;
+
+            if (useAI) {
+                try {
+                    games = await generateSmartClosing(activeGame.name, finalSelection, gameSize);
+                    if (!games || games.length === 0) throw new Error("AI Empty Result");
+                    // Limita aqui para respeitar o pedido
+                    if (games.length > limit) {
+                        games = games.slice(0, limit);
+                    }
+                } catch (aiError) {
+                    // Fallback
+                    const combos = generateCombinations(finalSelection, gameSize);
+                    if (combos.length > limit) {
+                        games = generateBalancedMatrix(finalSelection, limit, gameSize);
+                    } else {
+                        games = combos;
+                    }
+                }
+            } else {
+                // Matemática Pura
+                const estimatedCombos = finalSelection.length <= 18 ? 2000 : 99999;
+                if (estimatedCombos < limit) {
+                    games = generateCombinations(finalSelection, gameSize);
+                } else {
+                    games = generateBalancedMatrix(finalSelection, limit, gameSize);
+                }
+            }
+            
+            // Garante o limite exato
+            if (games.length > limit) {
+                games = games.slice(0, limit);
+            }
         }
         
         setGeneratedGames(games);
         setStatus(AppStatus.ANALYZING);
-        try {
-           const analysisResult = await analyzeClosing(finalSelection, games.length);
-           setAnalysis(analysisResult);
-        } catch (e) {
-           console.log("Analysis skipped");
+        
+        if (games.length < 50) {
+            try {
+               const analysisResult = await analyzeClosing(finalSelection, games.length);
+               setAnalysis(analysisResult);
+            } catch (e) { console.log("Analysis skipped"); }
         }
+        
+        vibrate(100);
         setStatus(AppStatus.SUCCESS);
       } catch (error) {
         console.error(error);
@@ -277,17 +657,88 @@ const App: React.FC = () => {
     }, 100);
   };
 
+  const handleKeyDownOnLimit = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+        handleGenerate();
+    }
+  };
+
+  const handleAiSuggestion = async () => {
+    vibrate(20);
+    setStatus(AppStatus.GENERATING);
+    setLoadingProgress(0); // Inicia progresso em 0
+
+    // Simulação de Progresso (já que a chamada é única e não streamada por padrão)
+    const fakeProgressInterval = setInterval(() => {
+        setLoadingProgress(prev => {
+            if (prev >= 90) return prev; // Para em 90% até a resposta chegar
+            return prev + Math.floor(Math.random() * 15) + 5;
+        });
+    }, 400);
+
+    try {
+      const suggestions = await getAiSuggestions(activeGame.name, activeGame.minSelection, activeGame.totalNumbers);
+      clearInterval(fakeProgressInterval);
+      setLoadingProgress(100);
+
+      if (suggestions.length > 0) {
+        const validSuggestions = suggestions.filter(n => n >= 1 && n <= activeGame.totalNumbers);
+        const capped = validSuggestions.slice(0, activeGame.maxSelection);
+        setSelectedNumbers(new Set(capped));
+        setGameSize(capped.length); // Sincroniza o tamanho também na sugestão IA
+        setGeneratedGames([]);
+        setStatus(AppStatus.IDLE);
+        vibrate(50);
+        setNotification({ msg: "Palpite Inteligente Gerado!", type: 'success' });
+        setTimeout(() => setNotification(null), 2000);
+      }
+    } catch (e) {
+      clearInterval(fakeProgressInterval);
+      setLoadingProgress(0);
+      console.error(e);
+      
+      // FALLBACK: Geração Matemática se IA falhar
+      setNotification({msg: "IA indisponível. Usando estatística local.", type: 'info'});
+      try {
+          const fallback = [];
+          const all = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+          // Tenta pegar alguns "quentes" se possível
+          if (latestResult) {
+             const past = await fetchPastResults(activeGame.apiSlug, latestResult.concurso, 20);
+             const hot = calculateHotNumbers(past, activeGame.maxSelection);
+             fallback.push(...hot);
+          }
+          
+          while(fallback.length < activeGame.maxSelection) {
+              const rnd = all[Math.floor(Math.random() * all.length)];
+              if(!fallback.includes(rnd)) fallback.push(rnd);
+          }
+          const finalFallback = fallback.slice(0, activeGame.maxSelection).sort((a, b) => a - b);
+          setSelectedNumbers(new Set(finalFallback));
+          setGameSize(finalFallback.length);
+          setStatus(AppStatus.IDLE);
+      } catch (err2) {
+          setNotification({msg: "Erro total. Tente novamente.", type: 'error'});
+      }
+
+    } finally {
+      setStatus(AppStatus.IDLE);
+      setTimeout(() => setLoadingProgress(0), 500);
+    }
+  };
+
   const handleSaveBatch = () => {
+    vibrate(20);
     if (generatedGames.length === 0 || !latestResult) return;
     const targetConcurso = latestResult.proximoConcurso;
     const gamesPayload = generatedGames.map((g, i) => ({ 
         numbers: g, 
         gameNumber: i + 1 
     }));
-    const updatedBatches = saveBets(gamesPayload, targetConcurso);
+    const updatedBatches = saveBets(gamesPayload, targetConcurso, activeGame.id);
     setSavedBatches(updatedBatches);
     setNotification({
-      msg: `Todos os ${generatedGames.length} jogos foram salvos!`,
+      msg: `Todos os ${generatedGames.length} jogos salvos em "Meus Jogos"!`,
       type: 'success'
     });
     setTimeout(() => setNotification(null), 3000);
@@ -295,178 +746,161 @@ const App: React.FC = () => {
 
   const handleSaveSingleGame = (e: React.MouseEvent, game: number[], originalIndex: number) => {
     e.stopPropagation(); 
+    vibrate(10);
     if (!latestResult) return;
     const targetConcurso = latestResult.proximoConcurso;
     const originalGameNumber = originalIndex + 1;
     const updatedBatches = saveBets(
         [{ numbers: game, gameNumber: originalGameNumber }], 
-        targetConcurso
+        targetConcurso,
+        activeGame.id
     );
     setSavedBatches(updatedBatches);
     setNotification({
-      msg: `Jogo ${originalGameNumber} salvo em "Meus Jogos"!`,
+      msg: `Jogo ${originalGameNumber} salvo!`,
       type: 'success'
     });
     setTimeout(() => setNotification(null), 2000);
   };
 
-  const handleCopyGame = (game: number[], index: number) => {
-    const text = game.join(', ');
+  const handleCopyGame = (game: number[], index: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    vibrate(10);
+    const text = activeGame.id === 'federal' 
+        ? game[0].toString()
+        : game.join(' ');
+
     navigator.clipboard.writeText(text).then(() => {
       setCopiedGameIndex(index);
       setTimeout(() => setCopiedGameIndex(null), 2000);
-      setNotification({ msg: 'Jogo copiado para área de transferência!', type: 'success' });
-      setTimeout(() => setNotification(null), 1500);
+      setNotification({ msg: 'Copiado!', type: 'success' });
+      setTimeout(() => setNotification(null), 1000);
     }).catch(err => {
       console.error('Failed to copy: ', err);
     });
   };
 
-  // --- DELETE HANDLERS CORRIGIDOS ---
+  // --- NATIVE SHARE API FOR BATCH ---
+  const handleSmartShare = async () => {
+    vibrate(10);
+    if (generatedGames.length === 0) return;
+    const nextDate = latestResult?.dataProximoConcurso || "Em breve";
+    const cost = totalGenerationCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const handleDeleteBatch = (e: React.MouseEvent, batchId: string) => {
+    let message = `🤖 *LotoSmart AI | ${activeGame.name}*\n`;
+    message += `📅 Sorteio: ${nextDate}\n`;
+    if (totalGenerationCost > 0) message += `💰 Custo: ${cost}\n`;
+    message += `\n📋 *${generatedGames.length} Jogos Gerados:*\n\n`;
+    
+    // Abre bloco de código monoespaçado para alinhamento perfeito
+    message += "```\n";
+
+    // Limita para não ficar muito grande no compartilhamento nativo
+    generatedGames.slice(0, 50).forEach((game, index) => {
+      const indexStr = (index + 1).toString().padStart(2, '0');
+      const line = activeGame.id === 'federal'
+          ? game[0].toString()
+          : game.map(n => n.toString().padStart(2, '0')).join(' ');
+      
+      // Formata: "01. 01 02 03..."
+      message += `${indexStr}. ${line}\n`;
+    });
+    
+    // Fecha bloco de código
+    message += "```\n";
+
+    if (generatedGames.length > 50) message += `\n...e mais ${generatedGames.length - 50} jogos.`;
+    message += `\n🍀 Boa sorte!`;
+
+    // Tenta API Nativa (Mobile)
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: `LotoSmart AI - ${activeGame.name}`,
+                text: message,
+            });
+            return;
+        } catch (error) {
+            console.log('Error sharing:', error);
+            // Fallback para WhatsApp Link se cancelar ou falhar
+        }
+    }
+
+    // Fallback WhatsApp Web
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  // --- NATIVE SHARE API FOR SINGLE GAME ---
+  const handleShareSingleGame = async (e: React.MouseEvent, game: number[], index: number) => {
+      e.stopPropagation();
+      vibrate(10);
+      
+      const gameText = activeGame.id === 'federal' 
+          ? `Bilhete: ${game[0]}` 
+          : `Dezenas:\n${game.map(n => n.toString().padStart(2, '0')).join(' ')}`;
+      
+      const shareData = {
+          title: `LotoSmart AI - ${activeGame.name}`,
+          text: `🤖 *LotoSmart AI - ${activeGame.name}*\n` +
+                `🎮 Jogo ${index + 1}\n\n` +
+                "```\n" +
+                gameText +
+                "\n```\n\n" +
+                `🍀 Boa sorte!`
+      };
+
+      if (navigator.share) {
+          try {
+              await navigator.share(shareData);
+          } catch (err) {
+              console.log('User dismissed share');
+          }
+      } else {
+          // Fallback para WhatsApp
+          const url = `https://wa.me/?text=${encodeURIComponent(shareData.text)}`;
+          window.open(url, '_blank');
+      }
+  };
+
+  // --- DELETE LOGIC (2-STEP CONFIRMATION) ---
+  
+  const handleRequestDeleteBatch = (e: React.MouseEvent, batchId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if(!window.confirm('Tem certeza que deseja apagar TODOS os jogos deste grupo?')) return;
+    vibrate(15);
     
-    // Usa o service para deletar e obter a lista atualizada
-    const updatedBatches = deleteBatch(batchId);
-    setSavedBatches(updatedBatches);
-    
-    setNotification({ msg: 'Grupo de jogos removido.', type: 'info' });
-    setTimeout(() => setNotification(null), 2000);
+    if (deleteConfirmBatchId === batchId) {
+        // Confirmed
+        const updatedBatches = deleteBatch(batchId);
+        setSavedBatches(updatedBatches);
+        setDeleteConfirmBatchId(null);
+        vibrate(50);
+        setNotification({ msg: 'Grupo excluído.', type: 'info' });
+        setTimeout(() => setNotification(null), 2000);
+    } else {
+        // Request
+        setDeleteConfirmBatchId(batchId);
+        setTimeout(() => setDeleteConfirmBatchId(prev => prev === batchId ? null : prev), 3000);
+    }
   };
 
-  const handleDeleteSpecificGame = (e: React.MouseEvent, batchId: string, gameId: string, gameNumber: number) => {
+  const handleDeleteSpecificGame = (e: React.MouseEvent, batchId: string, gameId: string) => {
     e.preventDefault(); 
     e.stopPropagation(); 
-    if(!window.confirm(`Deseja realmente apagar o Jogo ${gameNumber}?`)) return;
+    vibrate(10);
     
-    // Usa o service para deletar o jogo específico e obter a lista atualizada
-    const updatedBatches = deleteGame(batchId, gameId);
-    setSavedBatches(updatedBatches);
-    
-    setNotification({ msg: `Jogo ${gameNumber} removido com sucesso.`, type: 'info' });
-    setTimeout(() => setNotification(null), 1500);
-  };
-
-  const handleAiSuggestion = async () => {
-    setStatus(AppStatus.GENERATING);
-    try {
-      const suggestions = await getAiSuggestions('lotofacil', 15, 25);
-      if (suggestions.length > 0) {
-        const capped = suggestions.slice(0, MAX_SELECTION);
-        setSelectedNumbers(new Set(capped));
-        setGeneratedGames([]);
-        setAnalysis(null);
-        setHistorySim(null);
-        setHistoryCheck(null);
-        setExpandedGameStats(null);
-        setStatus(AppStatus.IDLE);
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erro na IA.");
-    } finally {
-      setStatus(AppStatus.IDLE);
+    if (deleteConfirmGameId === gameId) {
+        const updatedBatches = deleteGame(batchId, gameId);
+        setSavedBatches(updatedBatches);
+        setDeleteConfirmGameId(null);
+        vibrate(50);
+        setNotification({ msg: 'Jogo removido.', type: 'info' });
+        setTimeout(() => setNotification(null), 1500);
+    } else {
+        setDeleteConfirmGameId(gameId);
+        setTimeout(() => setDeleteConfirmGameId(prev => prev === gameId ? null : prev), 3000);
     }
-  };
-
-  // --- GALLERY LOGIC ---
-  const handleOpenGalleries = async () => {
-    setShowGalleriesModal(true);
-    // Initialize with current year
-    const currentYear = new Date().getFullYear();
-    handleYearSelect(currentYear);
-  };
-
-  const handleYearSelect = async (year: number) => {
-    setSelectedYear(year);
-    setWinningHistory([]);
-    setIsLoadingHistory(true);
-
-    const startConcurso = LOTOFACIL_YEAR_START[year] || 1;
-    // Load first batch for that year (e.g., 50 games)
-    // We assume about 200-300 games per year, so we load chunks.
-    setHistoryCursor(startConcurso);
-    
-    // Determine end of range for this year (next year start - 1, or latest)
-    let endLimit = 99999;
-    if (LOTOFACIL_YEAR_START[year + 1]) {
-       endLimit = LOTOFACIL_YEAR_START[year + 1] - 1;
-    } else if (latestResult) {
-       endLimit = latestResult.concurso;
-    }
-
-    try {
-       const initialBatchEnd = Math.min(startConcurso + 49, endLimit);
-       const results = await fetchResultsRange('lotofacil', startConcurso, initialBatchEnd);
-       // Sort ASCENDING (1, 2, 3...)
-       setWinningHistory(results.sort((a, b) => a.concurso - b.concurso));
-       setHistoryCursor(initialBatchEnd + 1);
-    } catch(e) {
-       console.error(e);
-    } finally {
-       setIsLoadingHistory(false);
-    }
-  };
-
-  const handleLoadMoreInYear = async () => {
-    if (isLoadingHistory || !latestResult) return;
-    setIsLoadingHistory(true);
-
-    let endLimit = 99999;
-    if (LOTOFACIL_YEAR_START[selectedYear + 1]) {
-       endLimit = LOTOFACIL_YEAR_START[selectedYear + 1] - 1;
-    } else if (latestResult) {
-       endLimit = latestResult.concurso;
-    }
-
-    // Stop if we exceeded the year's range
-    if (historyCursor > endLimit) {
-        setIsLoadingHistory(false);
-        return;
-    }
-
-    try {
-        const batchEnd = Math.min(historyCursor + 49, endLimit);
-        const results = await fetchResultsRange('lotofacil', historyCursor, batchEnd);
-        
-        setWinningHistory(prev => {
-            const combined = [...prev, ...results];
-            // Sort Ascending
-            return combined.sort((a, b) => a.concurso - b.concurso);
-        });
-        setHistoryCursor(batchEnd + 1);
-
-    } catch(e) {
-        console.error(e);
-    } finally {
-        setIsLoadingHistory(false);
-    }
-  };
-
-  const handleWhatsAppShare = () => {
-    if (generatedGames.length === 0) return;
-    const targetNumber = "5599984252028";
-    const nextDate = latestResult?.dataProximoConcurso || "Em breve";
-    const filteredGames = generatedGames.filter(game => {
-      const stats = getStats(game) as { evens: number; odds: number; sum: number };
-      const odds = Number(stats.odds);
-      const sum = Number(stats.sum);
-      return (odds >= 7 && odds <= 9) && (sum >= 170 && sum <= 225);
-    });
-    const gamesToSend = filteredGames.length > 0 ? filteredGames : generatedGames;
-    
-    let message = `🤖 *LotoSmart AI - Top 200 Stats*\n`;
-    message += `📅 Próximo Sorteio: ${nextDate}\n\n`;
-    gamesToSend.forEach((game, index) => {
-      const line = game.map(n => n.toString().padStart(2, '0')).join(' ');
-      message += `*Jogo ${(index + 1).toString().padStart(2, '0')}.* ${line}\n`;
-    });
-    message += `\n🍀 Boa sorte!`;
-    const url = `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
   };
 
   const calculateHits = (game: number[], targetResultSet?: Set<number>) => {
@@ -476,123 +910,179 @@ const App: React.FC = () => {
   };
 
   const getHitStyle = (hits: number) => {
-    if (hits === 15) return "bg-gradient-to-r from-yellow-500 to-purple-600 border-yellow-300 text-white shadow-[0_0_15px_rgba(234,179,8,0.5)]";
-    if (hits === 14) return "bg-gradient-to-r from-orange-500 to-red-600 border-orange-300 text-white shadow-[0_0_10px_rgba(249,115,22,0.4)]";
-    if (hits === 13) return "bg-gradient-to-r from-yellow-400 to-orange-400 border-yellow-200 text-slate-900 font-bold";
-    if (hits === 12) return "bg-emerald-600 border-emerald-400 text-white";
-    if (hits === 11) return "bg-cyan-700 border-cyan-500 text-cyan-50";
-    return "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-750";
+    // Cores específicas e vibrantes para Lotofácil (11 a 15 pontos)
+    if (activeGame.id === 'lotofacil') { 
+        // 15 PONTOS: OURO/AMBER (Jackpot)
+        if (hits === 15) return "bg-gradient-to-r from-yellow-600/60 to-amber-600/60 border-yellow-300 shadow-[0_0_20px_rgba(252,211,77,0.5)] ring-1 ring-yellow-200";
+        
+        // 14 PONTOS: VERMELHO VIVO (Alto Valor)
+        if (hits === 14) return "bg-gradient-to-r from-red-600/50 to-rose-600/50 border-red-400 shadow-[0_0_15px_rgba(248,113,113,0.4)] ring-1 ring-red-400/50";
+        
+        // 13 PONTOS: MAGENTA/ROXO (Intermediário Alto - Distinto)
+        if (hits === 13) return "bg-gradient-to-r from-fuchsia-600/40 to-purple-600/40 border-fuchsia-400 shadow-[0_0_10px_rgba(232,121,249,0.3)]";
+        
+        // 12 PONTOS: AZUL ROYAL (Intermediário)
+        if (hits === 12) return "bg-gradient-to-r from-blue-600/40 to-indigo-600/40 border-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.3)]";
+        
+        // 11 PONTOS: CIANO/TEAL (Entrada)
+        if (hits === 11) return "bg-gradient-to-r from-cyan-600/30 to-teal-600/30 border-cyan-400/50 shadow-[0_0_5px_rgba(34,211,238,0.2)]";
+    }
+
+    // Lógica genérica para outros jogos
+    let isWin = false;
+    let isJackpot = false;
+    let isSecondary = false;
+
+    if (activeGame.id === 'megasena') { 
+        if(hits>=4) isWin=true; 
+        if(hits===6) isJackpot=true;
+        if(hits===5) isSecondary=true; 
+    }
+    else if (activeGame.id === 'quina') { 
+        if(hits>=2) isWin=true; 
+        if(hits===5) isJackpot=true;
+        if(hits===4) isSecondary=true;
+    }
+    else if (activeGame.id === 'lotomania') { 
+        if(hits>=15 || hits===0) isWin=true; 
+        if(hits===20) isJackpot=true;
+        if(hits===19 || hits===0) isSecondary=true;
+    }
+    else if (activeGame.id === 'supersete') { 
+        if(hits>=3) isWin=true; 
+        if(hits===7) isJackpot=true;
+        if(hits===6) isSecondary=true;
+    }
+    else { 
+        if(hits > activeGame.minSelection / 2) isWin=true; 
+        if(hits === activeGame.minSelection) isJackpot=true;
+    }
+
+    if (isJackpot) return "bg-gradient-to-r from-yellow-600/60 to-amber-600/60 border-yellow-300 shadow-[0_0_20px_rgba(252,211,77,0.5)] ring-1 ring-yellow-200";
+    if (isSecondary) return "bg-gradient-to-r from-red-600/50 to-rose-600/50 border-red-400 shadow-[0_0_15px_rgba(248,113,113,0.4)]";
+    if (isWin) return "bg-gradient-to-r from-blue-600/40 to-indigo-600/40 border-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.3)]";
+    
+    return "bg-slate-800 border-slate-700 hover:border-slate-600";
   };
 
-  const selectionCount = selectedNumbers.size;
-  let possibleGamesText = "";
-  if (selectionCount >= 15) {
-    if (selectionCount > 18) {
-       possibleGamesText = "25 (Matriz Alta Precisão)";
-    } else {
-       const count = selectionCount === 15 ? 1 : 
-                     selectionCount === 16 ? 16 : 
-                     selectionCount === 17 ? 136 : 816;
-       possibleGamesText = count.toString();
-    }
-  }
+  const renderGameInfo = () => {
+    if (!showInfoModal) return null;
+    return (
+        <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+            <div className="bg-slate-800 w-full max-w-lg rounded-t-2xl sm:rounded-xl overflow-hidden shadow-2xl border-t border-x sm:border border-slate-700 max-h-[90vh] flex flex-col">
+                <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
+                <div className={`bg-${activeGame.color}-600 p-4 flex justify-between items-center text-white`}>
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                        ℹ️ Como Jogar: {activeGame.name}
+                    </h3>
+                    <button onClick={() => setShowInfoModal(false)} className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full font-bold">✕</button>
+                </div>
+                <div className="p-5 overflow-y-auto">
+                    <p className="text-slate-300 text-sm leading-relaxed mb-6">
+                        {activeGame.howToPlay}
+                    </p>
+                    <h4 className="font-bold text-white mb-3 text-sm uppercase tracking-wider border-b border-slate-700 pb-2">Tabela de Preços</h4>
+                    {activeGame.priceTable && activeGame.priceTable.length > 0 ? (
+                        <div className="overflow-hidden rounded-lg border border-slate-700">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-700 text-slate-300 text-xs uppercase">
+                                    <tr>
+                                        <th className="px-4 py-3">Números</th>
+                                        <th className="px-4 py-3 text-right">Valor</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-700">
+                                    {activeGame.priceTable.map((row, idx) => (
+                                        <tr key={idx} className={idx % 2 === 0 ? 'bg-slate-800' : 'bg-slate-800/50'}>
+                                            <td className="px-4 py-2.5 text-slate-300 font-bold">{row.quantity}</td>
+                                            <td className="px-4 py-2.5 text-right text-emerald-400 font-mono">
+                                                {typeof row.price === 'number' 
+                                                    ? row.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) 
+                                                    : row.price}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 italic text-sm">Informações de preço indisponíveis.</p>
+                    )}
+                    <div className="mt-4 text-[10px] text-slate-500 text-center">
+                        * Valores sujeitos a alteração pela Caixa Econômica Federal.<br/>Sorteios: <span className="text-slate-400 font-bold">{activeGame.drawDays}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+  };
 
-  // --- RENDER HELPERS ---
   const renderGameDetails = () => {
     if (!viewingGame) return null;
-    
-    // Find previous game to calculate "Repetidos"
-    const prevGame = winningHistory.find(g => g.concurso === viewingGame.concurso - 1);
+    const prevGame = analysisResults.find(g => g.concurso === viewingGame.concurso - 1);
     const prevNumbers = prevGame ? prevGame.dezenas.map(d => parseInt(d, 10)) : undefined;
-
-    const stats = calculateDetailedStats(viewingGame.dezenas.map(d => parseInt(d, 10)), prevNumbers, GAMES.lotofacil);
+    const stats = calculateDetailedStats(viewingGame.dezenas.map(d => parseInt(d, 10)), prevNumbers, activeGame);
     
     return (
-      <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-        <div className="bg-white w-full max-w-lg rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            {/* Header Roxo */}
-            <div className="bg-[#a04e8a] text-white p-4 flex justify-between items-center relative shadow-lg">
-                <h3 className="font-bold text-center w-full text-lg">
-                    Análise do Resultado {viewingGame.concurso} da Lotofácil
-                </h3>
-                <button 
-                  onClick={() => setViewingGame(null)} 
-                  className="absolute right-3 w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full transition-colors font-bold"
-                >
-                  ✕
-                </button>
+      <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+        <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-2 mb-1 sm:hidden absolute top-0 left-0 right-0 z-50"></div>
+            <div className={`bg-${activeGame.color}-600 text-white p-4 pt-5 sm:pt-4 flex justify-between items-center relative shadow-lg`}>
+                <h3 className="font-bold text-center w-full text-lg">Resultado {activeGame.name} #{viewingGame.concurso}</h3>
+                <button onClick={() => setViewingGame(null)} className="absolute right-3 w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full font-bold">✕</button>
             </div>
-            
             <div className="overflow-y-auto p-0 text-slate-800 text-sm">
-                
-                {/* Stats Table (Zebrada) */}
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Números Pares:</span><span className="font-bold">{stats.pares}</span>
+                {activeGame.id !== 'federal' && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border-b border-gray-200">
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Pares:</span><strong>{stats.pares}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Ímpares:</span><strong>{stats.impares}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Primos:</span><strong>{stats.primos}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Soma:</span><strong>{stats.soma}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Fibonacci:</span><strong>{stats.fibonacci}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Múlt. 3:</span><strong>{stats.multiplos3}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Média:</span><strong>{stats.media}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Desvio P.:</span><strong>{stats.desvioPadrao}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Triangulares:</span><strong>{stats.triangulares}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Moldura:</span><strong>{stats.moldura}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center"><span>Centro:</span><strong>{stats.centro}</strong></div>
+                    <div className="bg-white p-2 flex justify-between items-center text-red-600"><span>Repetidos:</span><strong>{stats.repetidos}</strong></div>
                 </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                    <span>Números Ímpares:</span><span className="font-bold">{stats.impares}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Números Primos:</span><span className="font-bold">{stats.primos}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                    <span>Repetidos no Concurso Anterior:</span>
-                    <span className={`font-bold ${stats.repetidos === '-' ? 'text-gray-400' : ''}`}>{stats.repetidos}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Soma dos Números:</span><span className="font-bold">{stats.soma}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                    <span>Média Aritmética:</span><span className="font-bold">{stats.media}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Desvio Padrão:</span><span className="font-bold">{stats.desvioPadrao}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                    <span>Múltiplos de 3:</span><span className="font-bold">{stats.multiplos3}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Números de Fibonacci:</span><span className="font-bold">{stats.fibonacci}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                   <span>Números Triangulares:</span><span className="font-bold">{stats.triangulares}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-white">
-                    <span>Números na Moldura:</span><span className="font-bold">{stats.moldura}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-                    <span>Números no Centro:</span><span className="font-bold">{stats.centro}</span>
-                </div>
-
-                {/* Prize Table Header */}
-                <div className="bg-[#a04e8a] text-white p-3 flex text-center text-sm font-bold mt-4 shadow-sm items-center">
-                    <div className="flex-1">Acertos</div>
-                    <div className="flex-1">Ganhadores</div>
-                    <div className="flex-1 text-right pr-4">Prêmio (R$)</div>
-                </div>
-
-                {/* Prize List */}
-                <div className="text-sm text-slate-800 pb-2">
+                )}
+                <div className="p-2 bg-gray-50 border-t border-gray-200">
+                    <div className="text-center text-xs font-bold text-gray-500 mb-1">Premiação</div>
                     {viewingGame.premiacoes.map((p, idx) => (
-                        <div key={p.faixa} className={`flex text-center py-2.5 border-b border-gray-200 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                            <div className="flex-1 font-bold text-slate-600">{p.faixa}</div>
-                            <div className="flex-1">{p.ganhadores}</div>
-                            <div className="flex-1 font-medium text-[#a04e8a] text-right pr-4">{p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
+                        <div key={idx} className="flex justify-between items-center py-1 border-b border-gray-200 text-xs last:border-0">
+                            <span className="font-medium text-slate-600">
+                               {activeGame.id === 'federal' ? `${p.faixa}º Prêmio` : (p.faixa > 20 ? `${p.faixa} acertos` : p.faixa === 0 ? '0 acertos' : `${p.faixa} acertos`)}
+                            </span>
+                            {activeGame.id === 'federal' && p.bilhete && (
+                                <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 rounded border border-blue-100">{p.bilhete}</span>
+                            )}
+                            <div className="text-right">
+                                <div className="font-bold text-slate-800">{p.ganhadores} ganhadores</div>
+                                <div className="text-[10px] text-green-600">R$ {p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
+                            </div>
                         </div>
                     ))}
                 </div>
-
-                {/* Numbers */}
                 <div className="p-4 bg-gray-100 border-t border-gray-200">
-                    <div className="text-center text-xs text-gray-500 mb-2 uppercase tracking-wider font-bold">Dezenas Sorteadas</div>
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                        {viewingGame.dezenas.map(d => (
-                            <span key={d} className="w-8 h-8 rounded-full bg-[#a04e8a] text-white text-sm flex items-center justify-center font-bold shadow-md border border-purple-800/20">
-                                {d}
-                            </span>
-                        ))}
-                    </div>
-                    <div className="text-center text-xs text-gray-400 mt-2">{viewingGame.data}</div>
+                    <div className="text-center text-xs text-gray-500 mb-2 font-bold">{viewingGame.data}</div>
+                    {activeGame.id === 'federal' ? (
+                         <div className="flex flex-col gap-1 w-full max-w-[200px] mx-auto">
+                            {viewingGame.dezenas.map((bilhete, idx) => (
+                               <div key={idx} className="flex justify-between text-xs border-b border-gray-300 pb-1">
+                                  <span className="font-bold text-slate-500">{idx+1}º</span>
+                                  <span className="font-mono font-bold text-slate-800 tracking-widest">{bilhete}</span>
+                               </div>
+                            ))}
+                         </div>
+                    ) : (
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                            {viewingGame.dezenas.map(d => (
+                                <span key={d} className={`w-8 h-8 rounded-full bg-${activeGame.color}-600 text-white text-sm flex items-center justify-center font-bold shadow-md`}>{d}</span>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -600,427 +1090,435 @@ const App: React.FC = () => {
     );
   };
 
+  const getGridColsClass = () => {
+      if (activeGame.cols === 5) return 'grid-cols-5';
+      if (activeGame.cols === 7) return 'grid-cols-7'; 
+      if (activeGame.cols === 10) return 'grid-cols-5 sm:grid-cols-10';
+      return 'grid-cols-5';
+  };
+
+  const selectionCount = selectedNumbers.size;
+
+  const handleDragEndSavedGames = (_: any, info: PanInfo) => {
+    if (info.offset.y > 100) {
+      setShowSavedGamesModal(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-900 pb-36">
+    <div className={`min-h-screen bg-slate-900 pb-[calc(90px+env(safe-area-inset-bottom))] font-sans text-slate-100`}>
+      <div className={`fixed inset-0 z-50 bg-black/80 backdrop-blur-sm transition-opacity duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsMenuOpen(false)}>
+         <div className={`absolute top-0 left-0 bottom-0 w-64 bg-slate-800 shadow-2xl transform transition-transform duration-300 ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} overflow-y-auto`} onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-purple-900 to-slate-800 pt-[calc(20px+env(safe-area-inset-top))]">
+                <h2 className="font-bold text-xl text-white">Jogos</h2>
+                <button onClick={() => setIsMenuOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div className="p-2 space-y-1">
+                {Object.values(GAMES).map((game: GameConfig) => (
+                    <button 
+                        key={game.id}
+                        onClick={() => handleGameChange(game.id)}
+                        className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition-colors ${activeGame.id === game.id ? `bg-${game.color}-600 text-white shadow-lg` : 'text-slate-300 hover:bg-slate-700'}`}
+                    >
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold bg-white/10`}>{game.name[0]}</span>
+                        <span className="font-medium">{game.name}</span>
+                    </button>
+                ))}
+            </div>
+         </div>
+      </div>
+
       {notification && (
-        <div className="fixed top-4 left-4 right-4 z-50 animate-bounce-in">
-          <div className={`${notification.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600'} text-white p-4 rounded-xl shadow-2xl flex items-center justify-between border border-white/20`}>
+        <div className="fixed top-4 left-4 right-4 z-[100] animate-bounce-in pt-[env(safe-area-inset-top)]">
+          <div className={`${notification.type === 'error' ? 'bg-red-600' : (notification.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600')} text-white p-4 rounded-xl shadow-2xl flex items-center justify-between border border-white/20`}>
             <span className="text-sm font-bold pr-2">{notification.msg}</span>
             <button onClick={() => setNotification(null)} className="text-white/80 hover:text-white font-bold">✕</button>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <header className="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-10 shadow-md">
+      <header className="bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-40 shadow-md pt-[calc(12px+env(safe-area-inset-top))]">
         <div className="flex justify-between items-center max-w-lg mx-auto">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 to-pink-500 rounded-lg flex items-center justify-center font-bold text-white text-lg">L</div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400">LotoSmart AI</h1>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsMenuOpen(true)} className="p-2 text-slate-300 hover:text-white bg-slate-700/50 rounded-lg active:scale-95 transition-transform">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <div className="flex items-center gap-2">
+                <div>
+                    <h1 className={`text-lg font-bold text-${activeGame.color}-400 leading-none`}>{activeGame.name}</h1>
+                    <span className="text-[10px] text-slate-500 font-bold tracking-wider">LOTOSMART AI</span>
+                </div>
+                <button onClick={() => setShowInfoModal(true)} className="w-6 h-6 rounded-full bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold border border-slate-600 ml-1 active:scale-95" title="Como Jogar">ℹ️</button>
+            </div>
           </div>
           <button 
             onClick={() => setShowSavedGamesModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs font-bold text-slate-200 transition-colors border border-slate-600"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs font-bold text-slate-200 border border-slate-600 active:scale-95 transition-transform"
           >
             <span>📁</span>
-            {savedBatches.length > 0 && (
-              <span className="bg-purple-500 text-white w-4 h-4 flex items-center justify-center rounded-full text-[9px] ml-1">{savedBatches.length}</span>
+            {savedBatches.filter(b => b.gameType === activeGame.id).length > 0 && (
+              <span className={`bg-${activeGame.color}-500 text-white w-4 h-4 flex items-center justify-center rounded-full text-[9px] ml-1`}>
+                  {savedBatches.filter(b => b.gameType === activeGame.id).length}
+              </span>
             )}
           </button>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto p-4 space-y-6">
+      <main className="max-w-lg mx-auto p-4 space-y-5">
         
-        {/* Latest Result Card */}
+        {/* LATEST RESULT / SKELETON SCREEN */}
         {isResultLoading ? (
-          <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 animate-pulse">
-            <div className="h-4 bg-slate-700 rounded w-1/3 mb-4"></div>
-            <div className="h-3 bg-slate-700 rounded w-1/2 mt-3"></div>
+          <div className="bg-slate-800/80 rounded-xl border border-slate-700 shadow-md p-4 animate-pulse relative overflow-hidden h-[180px]">
+             {/* Gradient Shine Effect */}
+             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 translate-x-[-100%] animate-[shimmer_1.5s_infinite]"></div>
+             
+             {/* Header Skeleton */}
+             <div className="flex justify-between mb-6">
+                <div>
+                   <div className="h-4 bg-slate-700 rounded w-24 mb-2"></div>
+                   <div className="h-3 bg-slate-700 rounded w-16"></div>
+                </div>
+                <div className="h-5 bg-slate-700 rounded w-20"></div>
+             </div>
+             
+             {/* Balls Skeleton */}
+             <div className="flex flex-wrap gap-2 mb-6">
+                {[...Array(15)].map((_, i) => (
+                   <div key={i} className="w-7 h-7 rounded-full bg-slate-700/80"></div>
+                ))}
+             </div>
+             
+             {/* Footer Skeleton */}
+             <div className="h-8 bg-slate-700/50 rounded-lg w-full mt-auto"></div>
           </div>
         ) : latestResult ? (
           <div className="bg-slate-800/80 rounded-xl border border-slate-700 shadow-md relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+            <div className={`absolute top-0 right-0 w-32 h-32 bg-${activeGame.color}-500/10 rounded-full blur-2xl -mr-10 -mt-10`}></div>
             <div className="p-4 relative z-10">
               <div className="flex justify-between items-start mb-3">
                 <div>
-                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider bg-emerald-900/30 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                    Concurso {latestResult.concurso}
-                  </span>
+                  <div className="flex items-center gap-2">
+                      <span className={`text-[10px] text-${activeGame.color}-300 font-bold uppercase tracking-wider bg-${activeGame.color}-900/30 px-2 py-0.5 rounded-full border border-${activeGame.color}-500/20`}>
+                        Concurso {latestResult.concurso}
+                      </span>
+                      {/* Botão de Refresh Manual */}
+                      <button 
+                        onClick={loadLatestResult} 
+                        disabled={isResultLoading}
+                        className="bg-white/10 hover:bg-white/20 text-white/80 p-1 rounded-full transition-colors active:rotate-180"
+                        title="Atualizar Resultado Agora"
+                      >
+                         <svg className={`w-3 h-3 ${isResultLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                      </button>
+                  </div>
                   <div className="text-xs text-slate-400 mt-1">{latestResult.data}</div>
                 </div>
                 <div className={`text-right ${latestResult.acumulou ? 'text-yellow-400' : 'text-emerald-400'}`}>
                   <div className="text-sm font-bold">{latestResult.acumulou ? 'ACUMULOU!' : 'PREMIADO'}</div>
+                  {!latestResult.acumulou && latestResult.premiacoes && latestResult.premiacoes[0] && (
+                     <div className="text-xs font-mono font-bold mt-0.5 animate-fade-in text-emerald-200">
+                        {latestResult.premiacoes[0].valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                     </div>
+                  )}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mb-4">
-                {latestResult.dezenas.map((n) => (
-                  <span key={n} className="w-7 h-7 flex items-center justify-center bg-gradient-to-br from-emerald-600/30 to-slate-800 border border-emerald-500/40 rounded-full text-xs font-bold text-emerald-100 shadow-sm">{n}</span>
-                ))}
-              </div>
+
+              {activeGame.id === 'federal' ? (
+                  <div className="flex flex-col gap-2 mb-4">
+                      {latestResult.dezenas.map((bilhete, idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-black/20 p-2 rounded border border-white/5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">{idx + 1}º Prêmio</span>
+                              <span className="font-mono text-lg font-bold text-white tracking-widest">{bilhete}</span>
+                          </div>
+                      ))}
+                  </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mb-4">
+                    {latestResult.dezenas.map((n, idx) => (
+                    <span key={idx} className={`w-7 h-7 flex items-center justify-center bg-gradient-to-br from-${activeGame.color}-600/30 to-slate-800 border border-${activeGame.color}-500/40 rounded-full text-xs font-bold text-${activeGame.color}-100 shadow-sm`}>{n}</span>
+                    ))}
+                </div>
+              )}
+
               {latestResult.dataProximoConcurso && <CountdownTimer targetDateStr={latestResult.dataProximoConcurso} />}
+              
+              {(latestResult.valorEstimadoProximoConcurso > 0) && (
+                  <div className="mt-3 bg-gradient-to-r from-emerald-900/40 to-green-900/40 border border-emerald-500/30 rounded-lg p-3 text-center shadow-lg relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-full h-full bg-emerald-500/5"></div>
+                      <div className="relative z-10">
+                          <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-0.5">Estimativa de Prêmio</p>
+                          <p className="text-2xl font-bold text-white font-mono tracking-tight drop-shadow-md">
+                              {latestResult.valorEstimadoProximoConcurso.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </p>
+                      </div>
+                  </div>
+              )}
             </div>
           </div>
         ) : null}
 
-        {/* Buttons Group */}
+        {/* Buttons */}
         <div className="grid grid-cols-2 gap-3">
+          {activeGame.id !== 'federal' && (
           <button 
             onClick={handleGenerateTop200}
             disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
-            className="w-full py-3 bg-gradient-to-br from-indigo-900 to-indigo-700 border border-indigo-500/50 rounded-xl text-indigo-100 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all shadow-lg shadow-indigo-900/20"
+            className={`w-full py-3 bg-gradient-to-br from-${activeGame.color}-900 to-${activeGame.color}-800 border border-${activeGame.color}-500/50 rounded-xl text-${activeGame.color}-100 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all shadow-lg overflow-hidden relative`}
           >
             {status === AppStatus.GENERATING ? (
-               <span className="text-xs animate-pulse">Processando...</span>
-            ) : (
-              <>
-                <span className="text-lg">🔥</span>
-                <span className="text-xs text-center">Estratégia Top 200<br/>(Garante 12+)</span>
-              </>
-            )}
+                <>
+                    <span className="text-xs animate-pulse relative z-10">Baixando Histórico... {loadingProgress}%</span>
+                    <div className="absolute bottom-0 left-0 h-1 bg-white/20 w-full">
+                        <div className="h-full bg-white/50 transition-all duration-300" style={{ width: `${loadingProgress}%` }}></div>
+                    </div>
+                </>
+            ) : <><span className="text-lg">🔥</span><span className="text-xs text-center">Padrão Ouro<br/>(Apenas Jogos Pagos)</span></>}
           </button>
+          )}
           
+          {activeGame.id !== 'federal' && (
           <button 
-            onClick={handleOpenGalleries}
-            className="w-full py-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold flex flex-col items-center justify-center gap-1 active:bg-slate-700 transition-colors"
+            onClick={handleOpenHistoryAnalysis}
+            className={`w-full py-3 bg-gradient-to-br from-amber-700 to-amber-600 border border-amber-500/50 rounded-xl text-amber-100 font-bold flex flex-col items-center justify-center gap-1 active:scale-95 transition-all shadow-lg`}
           >
-             <span className="text-lg">🏆</span>
-             <span className="text-xs">Resultados por Ano</span>
+            <span className="text-lg">🔍</span>
+            <span className="text-xs text-center">Raio-X Histórico<br/>(Visualização)</span>
           </button>
-
-          <button 
-            onClick={handleHistoricalStrategy}
-            disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
-            className="col-span-2 py-3 bg-gradient-to-r from-amber-600 to-amber-700 border border-amber-500/50 rounded-xl text-amber-100 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg"
-          >
-            {status === AppStatus.GENERATING ? (
-              <span className="text-xs animate-pulse">Analisando 3000+ concursos...</span>
-            ) : (
-              <>
-                <span className="text-lg">🏛️</span>
-                <span>Análise Histórica (Desde o #1)</span>
-              </>
-            )}
-          </button>
+          )}
         </div>
 
-        {/* YEAR GALLERY MODAL - LIST VIEW */}
-        {showGalleriesModal && (
-           <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-              <div className="bg-slate-900 w-full max-w-4xl h-[95vh] rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden">
-                  
-                  {/* Header */}
-                  <div className="p-3 bg-purple-900/20 border-b border-purple-500/20 flex justify-between items-center">
-                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                        <span className="text-purple-400">📅</span> 
-                        Histórico por Ano
-                      </h3>
-                      <button onClick={() => setShowGalleriesModal(false)} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700">✕</button>
-                  </div>
+        {/* ... (Number grid and generation settings block - Keep as is) ... */}
+        {activeGame.id !== 'federal' && (
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 sticky top-16 z-30 backdrop-blur-sm shadow-xl">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-slate-400 text-sm">Números Selecionados</span>
+            <span className={`text-sm font-bold ${selectionCount === activeGame.maxSelection ? 'text-red-400' : `text-${activeGame.color}-400`}`}>
+              {selectionCount} / {activeGame.maxSelection}
+            </span>
+          </div>
+          <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden mb-3">
+            <div className={`bg-${activeGame.color}-500 h-full transition-all duration-300`} style={{ width: `${Math.min(100, (selectionCount / activeGame.minSelection) * 100)}%` }}></div>
+          </div>
+          
+          {/* GENERATION SETTINGS GROUP */}
+          <div className="flex flex-col gap-3 pt-2 border-t border-slate-700/50">
+             
+             {/* GAME SIZE SELECTOR (Com Auto-Select) */}
+             <div className="flex justify-between items-center">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Números por Jogo:</span>
+                <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-700/50 overflow-x-auto max-w-[200px] no-scrollbar">
+                    {Array.from({ length: activeGame.maxSelection - activeGame.minSelection + 1 }, (_, i) => activeGame.minSelection + i).map(size => (
+                        <button
+                            key={size}
+                            onClick={() => handleGameSizeChangeWithAutoSelect(size)}
+                            className={`min-w-[36px] px-1 py-1 rounded-md text-[10px] font-bold transition-all whitespace-nowrap flex flex-col items-center justify-center leading-none ${gameSize === size ? `bg-${activeGame.color}-600 text-white shadow-sm` : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                        >
+                            <span>{size}</span>
+                            <span className="text-[7px] opacity-70 mt-0.5 font-mono">
+                                {getPriceForQty(size) > 0 ? getPriceForQty(size).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL', maximumFractionDigits: 0}) : '-'}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+             </div>
 
-                  <div className="flex flex-1 overflow-hidden">
-                    {/* Sidebar Years */}
-                    <div className="w-20 sm:w-24 border-r border-slate-800 overflow-y-auto bg-slate-900/50 no-scrollbar">
-                        {availableYears.map(year => (
-                           <button
-                             key={year}
-                             onClick={() => handleYearSelect(year)}
-                             className={`w-full py-4 text-xs sm:text-sm font-bold border-b border-slate-800 transition-all ${
-                               selectedYear === year 
-                               ? "bg-purple-600 text-white border-l-4 border-l-purple-300" 
-                               : "text-slate-500 hover:bg-slate-800 hover:text-slate-300"
-                             }`}
-                           >
-                             {year}
-                           </button>
+             {/* GENERATION QUANTITY (INPUT LIVRE) */}
+             <div className="flex justify-between items-center gap-2">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">Quantidade de Jogos:</span>
+                <div className="flex items-center gap-2 flex-1 justify-end">
+                    {/* Atalhos Rápidos */}
+                    <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-700/50">
+                        {[5, 15, 50, 100].map(val => (
+                            <button 
+                                key={val}
+                                onClick={() => setGenerationLimit(val)}
+                                className={`px-2 py-1 text-[9px] font-bold rounded hover:bg-slate-800 transition-colors ${generationLimit === val ? 'text-white bg-slate-700' : 'text-slate-500'}`}
+                            >
+                                {val}
+                            </button>
                         ))}
                     </div>
-
-                    {/* Content Area - List of Clickable Cards */}
-                    <div className="flex-1 overflow-y-auto bg-slate-950 p-2 sm:p-4 scroll-smooth">
-                        {isLoadingHistory && winningHistory.length === 0 ? (
-                           <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                             <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-                             Carregando {selectedYear}...
-                           </div>
-                        ) : (
-                           <div className="space-y-3">
-                              {winningHistory.length === 0 ? (
-                                <div className="text-center py-10 text-slate-500">Nenhum resultado carregado.</div>
-                              ) : (
-                                winningHistory.map((game) => (
-                                   <button 
-                                     key={game.concurso} 
-                                     onClick={() => setViewingGame(game)}
-                                     className="w-full text-left bg-slate-800 hover:bg-slate-750 p-3 rounded-lg border border-slate-700 hover:border-purple-500/50 transition-all active:scale-95 group shadow-sm flex flex-col gap-2"
-                                   >
-                                      <div className="flex justify-between items-center w-full border-b border-slate-700 pb-2 mb-1">
-                                         <div>
-                                            <span className="text-purple-400 font-bold text-sm block">Concurso {game.concurso}</span>
-                                            <span className="text-[10px] text-slate-500">{game.data}</span>
-                                         </div>
-                                         <div className="text-[10px] bg-slate-700 text-slate-300 px-2 py-1 rounded-full group-hover:bg-purple-600 group-hover:text-white transition-colors font-bold">
-                                            Ver Detalhes →
-                                         </div>
-                                      </div>
-                                      
-                                      <div className="flex flex-wrap gap-1 justify-center sm:justify-start opacity-80 group-hover:opacity-100">
-                                         {game.dezenas.map(d => (
-                                            <span key={d} className="w-6 h-6 rounded-full bg-slate-900 border border-slate-600 text-[10px] flex items-center justify-center font-bold text-slate-300">
-                                              {d}
-                                            </span>
-                                         ))}
-                                      </div>
-                                   </button>
-                                ))
-                              )}
-
-                              {/* Load More Trigger */}
-                              <div className="pt-4 pb-10">
-                                <button 
-                                  onClick={handleLoadMoreInYear}
-                                  disabled={isLoadingHistory}
-                                  className="w-full py-3 bg-slate-800 text-slate-400 rounded-lg font-bold border border-slate-700 hover:bg-slate-700 transition-colors"
-                                >
-                                  {isLoadingHistory ? 'Carregando...' : `Carregar Mais de ${selectedYear}`}
-                                </button>
-                              </div>
-                           </div>
-                        )}
-                    </div>
-                  </div>
-              </div>
-           </div>
-        )}
-
-        {/* DETAILED GAME MODAL (Overlay) */}
-        {renderGameDetails()}
-
-        {/* Saved Games Modal */}
-        {showSavedGamesModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-             <div className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-xl border border-slate-700 shadow-2xl flex flex-col">
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-                   <h3 className="text-lg font-bold text-white">📁 Jogos Salvos</h3>
-                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white">✕</button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {savedBatches.length === 0 ? (
-                    <div className="text-center py-10 text-slate-500"><p>Nenhum jogo salvo.</p></div>
-                  ) : (
-                    savedBatches.map((batch, idx) => (
-                        <div key={batch.id || idx} className="bg-slate-900/50 rounded-lg border border-slate-700 p-3 shadow-sm">
-                          <div className="flex justify-between items-start mb-3 border-b border-slate-700/50 pb-2">
-                            <div>
-                               <div className="text-sm font-bold text-white flex items-center gap-2">
-                                  <span>Conc: {batch.targetConcurso}</span>
-                                  {latestResult && latestResult.concurso === batch.targetConcurso && (
-                                     <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">Atual</span>
-                                  )}
-                                </div>
-                               <div className="text-[10px] text-slate-500">{batch.createdAt} • {batch.games.length} jogos</div>
-                            </div>
-                            <button 
-                              type="button"
-                              onClick={(e) => handleDeleteBatch(e, batch.id)} 
-                              className="bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg px-4 py-1.5 transition-colors flex items-center gap-1.5 text-xs font-bold shadow-sm active:scale-95 z-20"
-                            >
-                              <span>🗑️</span> Excluir Grupo
-                            </button>
-                          </div>
-                          <div className="space-y-3">
-                            {batch.games.map((gameObj, gameIdx) => {
-                              if (!gameObj || !gameObj.numbers) return null;
-
-                              let hits = 0;
-                              let statusLabel = <span className="text-slate-500 text-[10px]">Aguardando...</span>;
-                              let styleClass = "bg-slate-800 border-slate-700";
-
-                              if (latestResult && latestResult.concurso === batch.targetConcurso) {
-                                  hits = calculateHits(gameObj.numbers);
-                                  styleClass = getHitStyle(hits);
-                                  
-                                  if (hits >= 11) statusLabel = <span className={`font-bold text-[10px] ${hits >= 14 ? 'text-white' : 'text-slate-900'}`}>{hits} PONTOS!</span>;
-                                  else statusLabel = <span className="text-slate-400 text-[10px]">{hits} acertos</span>;
-                              } else if (latestResult && latestResult.concurso > batch.targetConcurso) {
-                                  statusLabel = <span className="text-slate-500 text-[10px] line-through">Expirado</span>;
-                              }
-                              
-                              const isWinner = hits >= 11;
-
-                              return (
-                                <div key={gameObj.id} className={`flex flex-col p-3 rounded mb-1 border transition-all ${styleClass} ${isWinner ? 'shadow-[0_0_10px_rgba(255,215,0,0.15)]' : ''}`}>
-                                   <div className="flex justify-between items-center mb-2 pb-1 border-b border-white/5">
-                                      <div className="flex items-center gap-2">
-                                         <span className="text-xs font-bold opacity-70">Jogo {gameObj.gameNumber}</span>
-                                         {isWinner && (
-                                            <span className="text-[10px] bg-yellow-400 text-black px-1.5 rounded-full font-bold flex items-center gap-1 shadow-sm">
-                                              🏆 {hits}
-                                            </span>
-                                         )}
-                                      </div>
-                                      <button 
-                                        onClick={(e) => handleDeleteSpecificGame(e, batch.id, gameObj.id, gameObj.gameNumber)}
-                                        className="w-5 h-5 flex items-center justify-center text-red-400 hover:text-white hover:bg-red-500 rounded transition-colors"
-                                        title={`Apagar Jogo ${gameObj.gameNumber}`}
-                                      >
-                                        ✕
-                                      </button>
-                                   </div>
-                                   <div className="flex justify-between items-center">
-                                       <div className="flex gap-1 flex-wrap">
-                                          {gameObj.numbers.map(n => {
-                                            const isHit = resultNumbers.has(n);
-                                            return (
-                                              <span key={n} className={`text-[10px] w-6 h-6 flex items-center justify-center rounded-full font-mono font-bold ${isHit ? 'bg-white text-black font-bold' : 'bg-black/20 text-current opacity-80'}`}>
-                                                 {n.toString().padStart(2, '0')}
-                                              </span>
-                                            );
-                                          })}
-                                       </div>
-                                       <div className="ml-2 min-w-[60px] text-right">{statusLabel}</div>
-                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                    ))
-                  )}
+                    {/* Input Livre */}
+                    <input 
+                        type="number" 
+                        min="1" 
+                        max="1000"
+                        value={generationLimit}
+                        onChange={(e) => setGenerationLimit(e.target.value)}
+                        onKeyDown={handleKeyDownOnLimit}
+                        className="w-16 bg-slate-900 border border-slate-600 rounded-lg text-white text-center text-sm font-bold py-1 focus:ring-2 focus:ring-purple-500 outline-none"
+                    />
                 </div>
              </div>
           </div>
+
+          {selectionCount < activeGame.minSelection && selectionCount > 0 && (
+              <p className="text-[10px] text-center text-slate-500 mt-2">
+                  <span className="animate-pulse">⚠️</span> Faltam números. O sistema completará automaticamente.
+              </p>
+          )}
+        </div>
         )}
 
-        {/* Status Card */}
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-slate-400 text-sm">Números Selecionados</span>
-            <span className={`text-sm font-bold ${selectionCount === MAX_SELECTION ? 'text-red-400' : 'text-purple-400'}`}>
-              {selectionCount} / {MAX_SELECTION}
-            </span>
-          </div>
-          <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
-            <div className="bg-purple-500 h-full transition-all duration-300" style={{ width: `${(selectionCount / MAX_SELECTION) * 100}%` }}></div>
-          </div>
-        </div>
+        {activeGame.id === 'federal' ? (
+            <div className="bg-blue-900/20 border border-blue-500/20 p-6 rounded-xl text-center">
+                <span className="text-4xl mb-2 block">🎫</span>
+                <p className="text-sm text-blue-200 mb-2 font-bold">Na Federal você concorre com bilhetes inteiros.</p>
+                <p className="text-xs text-slate-400">Gere abaixo palpites aleatórios de bilhetes de 5 dígitos para procurar na lotérica.</p>
+            </div>
+        ) : (
+            <div className={`grid ${getGridColsClass()} gap-2 sm:gap-3 justify-items-center pb-4`}>
+            {allNumbers.map((num) => (
+                <NumberBall
+                key={num}
+                number={num}
+                isSelected={selectedNumbers.has(num)}
+                isRecentResult={resultNumbers.has(num)}
+                onClick={toggleNumber}
+                disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
+                colorTheme={activeGame.color}
+                size={activeGame.totalNumbers > 60 ? 'small' : 'medium'}
+                label={activeGame.id === 'supersete' ? (num % 10).toString() : undefined} 
+                />
+            ))}
+            </div>
+        )}
 
-        {/* Grid */}
-        <div className="grid grid-cols-5 gap-3 sm:gap-4 justify-items-center">
-          {allNumbers.map((num) => (
-            <NumberBall
-              key={num}
-              number={num}
-              isSelected={selectedNumbers.has(num)}
-              isRecentResult={resultNumbers.has(num)}
-              onClick={toggleNumber}
-              disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
-            />
-          ))}
-        </div>
-
-        {/* Generated Games Section */}
+        {/* ... (Generated games list remains same) ... */}
         {generatedGames.length > 0 && (
-          <div className="space-y-3">
+          <div className="space-y-4 pt-4 border-t border-slate-800">
+             {/* ... */}
              <div className="flex flex-col space-y-2">
-                <h3 className="text-lg font-bold text-white flex items-center">
-                  Jogos Gerados ({generatedGames.length})
-                </h3>
-                <div className="text-xs text-slate-400 mb-2">
-                   Toque no cartão para <span className="text-white font-bold">COPIAR</span>. Use o botão 💾 para salvar.
+                <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-white flex items-center">
+                    {activeGame.id === 'federal' ? 'Palpites de Bilhetes' : `Jogos Gerados (${generatedGames.length})`}
+                    </h3>
+                    {totalGenerationCost > 0 && (
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-emerald-200 uppercase tracking-wide">Custo Total</span>
+                            <span className="text-emerald-400 font-mono font-bold text-sm bg-emerald-900/30 px-2 py-0.5 rounded border border-emerald-500/30">
+                                {totalGenerationCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                        </div>
+                    )}
                 </div>
-                {/* Actions */}
                 <div className="flex w-full gap-2">
-                    <button onClick={handleSaveBatch} className="flex-1 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg">Salvar Todos</button>
-                    <button onClick={handleWhatsAppShare} className="flex-1 px-4 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg">Enviar WhatsApp</button>
+                    <button onClick={handleSaveBatch} className="flex-1 px-4 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg transition-colors active:scale-95">Salvar Todos</button>
+                    <button onClick={handleSmartShare} className="flex-1 px-4 py-3 bg-green-600/20 hover:bg-green-600/30 border border-green-500/50 text-green-200 text-xs font-bold rounded-lg transition-colors active:scale-95 flex items-center justify-center gap-1">
+                        {typeof navigator.share !== 'undefined' ? (
+                            <><span>📲</span> Compartilhar</>
+                        ) : (
+                            <><span>💬</span> WhatsApp</>
+                        )}
+                    </button>
                 </div>
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-3">
               {generatedGames.map((game, idx) => {
                 const hits = calculateHits(game);
                 const isCopied = copiedGameIndex === idx;
-                
-                // Calculate Stats for visual feedback
-                const stats = getStats(game) as { evens: number; odds: number; sum: number };
-                const evens = Number(stats.evens);
-                const sum = Number(stats.sum);
-                const isOptimized = evens >= 6 && evens <= 9 && sum >= 170 && sum <= 225;
-                
-                // CALCULATE DETAILED STATS ON THE FLY
-                // Uses latestResult as previousNumbers to calculate Repeats
-                const previousNumbers = latestResult ? Array.from(resultNumbers) as number[] : undefined;
-                const detailedStats = calculateDetailedStats(game, previousNumbers, GAMES.lotofacil);
-                
                 const isExpanded = expandedGameStats === idx;
+                
+                const prevNumbers = latestResult ? Array.from(resultNumbers) as number[] : undefined;
+                const detailedStats = isExpanded ? calculateDetailedStats(game, prevNumbers, activeGame) : null;
 
-                let styleClass = "bg-slate-800 border-slate-700 hover:bg-slate-750";
-                let hitBadge = null;
-
-                if (latestResult) {
-                   const currentHits = calculateHits(game);
-                   if (currentHits >= 11) {
-                      styleClass = getHitStyle(currentHits);
-                      hitBadge = <div className="absolute top-0 right-20 px-2 py-1 rounded-b-lg text-[10px] font-bold bg-black/30 text-white shadow-sm z-20">{currentHits} PTS</div>;
-                   }
+                let styleClass = "bg-slate-800 border-slate-700 hover:border-slate-500";
+                if (latestResult && activeGame.id !== 'federal') {
+                   styleClass = getHitStyle(hits);
                 }
                 
-                if (isOptimized && !hitBadge && styleClass.includes('bg-slate-800')) {
-                   styleClass = "bg-slate-800/80 border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)] hover:bg-slate-750";
+                // ... (Generated Game Item Rendering) ...
+                if (activeGame.id === 'federal') {
+                    const ticketNumber = game[0].toString();
+                    return (
+                        <button
+                            key={idx}
+                            onClick={(e) => handleCopyGame(game, idx, e)}
+                            className="w-full text-left p-4 bg-gradient-to-r from-blue-900/40 to-slate-800 border border-blue-500/30 rounded-lg shadow-sm relative overflow-hidden group active:scale-95 transition-all"
+                        >
+                             {isCopied && (
+                                <div className="absolute inset-0 z-20 bg-blue-600/90 flex items-center justify-center animate-fade-in"><span className="text-white font-bold">Copiado!</span></div>
+                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs text-blue-300 font-bold uppercase tracking-wider">Palpite {idx+1}</span>
+                                <div className="font-mono text-xl font-bold text-white tracking-[0.2em] bg-black/20 px-3 py-1 rounded border border-white/5">{ticketNumber}</div>
+                            </div>
+                        </button>
+                    );
                 }
                 
                 return (
                   <button 
                     key={idx} 
-                    onClick={() => handleCopyGame(game, idx)}
-                    className={`w-full text-left p-3 rounded-lg border flex flex-col space-y-2 relative overflow-hidden transition-all active:scale-95 group ${styleClass}`}
+                    onClick={(e) => handleCopyGame(game, idx, e)}
+                    className={`w-full text-left rounded-xl border flex flex-col relative overflow-hidden transition-all active:scale-95 group ${styleClass} shadow-md`}
                   >
                     {isCopied && (
-                      <div className="absolute inset-0 z-20 bg-emerald-600/90 flex items-center justify-center animate-fade-in">
-                        <span className="text-white font-bold text-lg flex items-center gap-2">📋 Copiado!</span>
-                      </div>
+                      <div className="absolute inset-0 z-20 bg-emerald-600/90 flex items-center justify-center animate-fade-in"><span className="text-white font-bold">Copiado!</span></div>
                     )}
                     
-                    <div className="absolute inset-0 z-10 bg-black/0 hover:bg-black/10 transition-colors pointer-events-none"></div>
+                    <div className="flex justify-between items-center bg-black/20 p-2 border-b border-white/5">
+                        <span className={`text-xs font-bold uppercase tracking-wider ${latestResult && hits >= (activeGame.minSelection / 2) ? 'text-white' : 'text-slate-400'}`}>
+                           Jogo {String(idx + 1).padStart(2, '0')} <span className="opacity-50 text-[9px] ml-1">({game.length} dz)</span>
+                        </span>
+                        
+                         <div className="flex gap-2 relative z-20">
+                            {/* NEW: COPY BUTTON */}
+                            <div 
+                                onClick={(e) => handleCopyGame(game, idx, e)}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white flex items-center gap-1 transition-colors"
+                                title="Copiar Jogo"
+                            >
+                              📋
+                            </div>
+                            
+                            {/* SHARE SINGLE GAME */}
+                            <div 
+                                onClick={(e) => handleShareSingleGame(e, game, idx)}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-green-600 text-white flex items-center gap-1 transition-colors"
+                                title="Compartilhar este jogo"
+                            >
+                              📲
+                            </div>
+                            <div onClick={(e) => toggleGameStats(e, idx)} className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white flex items-center gap-1 transition-colors">
+                              📊 Stats
+                            </div>
+                            <div onClick={(e) => handleSaveSingleGame(e, game, idx)} className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-blue-600 text-white flex items-center gap-1 transition-colors">
+                              💾 Salvar
+                            </div>
+                        </div>
+                    </div>
 
-                    {hitBadge}
+                    <div className="p-3">
+                      <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start">
+                        {game.map(n => {
+                          const isHit = resultNumbers.has(n);
+                          let ballClass = `bg-black/20 text-slate-300 opacity-80`;
+                          if (isHit) {
+                             ballClass = `bg-white text-black font-bold shadow-sm scale-105`;
+                          } else if (activeGame.id !== 'supersete') {
+                             ballClass = `bg-${activeGame.color}-900/40 text-${activeGame.color}-100/70 border border-${activeGame.color}-500/20`;
+                          }
 
-                    {/* ACTIONS ROW */}
-                    <div className="absolute top-2 right-2 flex gap-2 z-20">
-                      <div 
-                        onClick={(e) => toggleGameStats(e, idx)}
-                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors shadow-lg border border-white/10 ${isExpanded ? 'bg-purple-600 text-white' : 'bg-slate-900/50 text-purple-300 hover:bg-purple-600 hover:text-white'}`}
-                        title="Ver Estatísticas Detalhadas"
-                      >
-                        📊
-                      </div>
-                      <div 
-                        onClick={(e) => handleSaveSingleGame(e, game, idx)}
-                        className="w-7 h-7 bg-slate-900/50 hover:bg-blue-600 text-white rounded-full flex items-center justify-center border border-white/10 transition-colors shadow-lg"
-                        title="Salvar apenas este jogo"
-                      >
-                        💾
+                          return (
+                            <span key={n} className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-mono transition-transform ${ballClass}`}>
+                              {activeGame.id === 'supersete' ? (n % 10) : n.toString().padStart(2, '0')}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-1 pr-20 mt-1">
-                       <div className="absolute -top-1 left-2 text-[9px] font-bold text-slate-500 bg-slate-900 px-1 rounded-b border border-t-0 border-slate-800 flex items-center">
-                         Jogo {idx + 1}
-                         {isOptimized && <span className="text-yellow-400 ml-1 text-[10px]" title="Estatisticamente Equilibrado">✨</span>}
+                    {latestResult && hits > 0 && (
+                       <div className={`px-3 py-1 text-[10px] font-bold text-center uppercase tracking-widest ${hits >= (activeGame.id === 'lotofacil' ? 11 : 4) ? 'bg-white/20 text-white' : 'bg-black/20 text-slate-400'}`}>
+                           {hits} Acertos
                        </div>
-                      {game.map(n => {
-                        const isHit = resultNumbers.has(n);
-                        return (
-                          <span key={n} className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-mono ${isHit ? 'bg-white text-black font-bold' : 'bg-black/20 text-white/80'}`}>
-                            {n.toString().padStart(2, '0')}
-                          </span>
-                        );
-                      })}
-                    </div>
+                    )}
 
-                    {/* EXPANDED STATS GRID */}
-                    {isExpanded && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/10 text-[10px] text-slate-300 animate-fade-in relative z-20 cursor-default" onClick={(e) => e.stopPropagation()}>
+                    {isExpanded && detailedStats && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 border-t border-white/10 text-[10px] text-slate-300 animate-fade-in bg-black/10 cursor-default" onClick={(e) => e.stopPropagation()}>
                          <div className="flex justify-between bg-black/20 px-2 py-1 rounded"><span>Pares:</span> <span className="font-bold text-white">{detailedStats.pares}</span></div>
                          <div className="flex justify-between bg-black/20 px-2 py-1 rounded"><span>Ímpares:</span> <span className="font-bold text-white">{detailedStats.impares}</span></div>
                          <div className="flex justify-between bg-black/20 px-2 py-1 rounded"><span>Primos:</span> <span className="font-bold text-white">{detailedStats.primos}</span></div>
@@ -1044,24 +1542,212 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/90 backdrop-blur-md border-t border-slate-700 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-20">
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-40 pb-[calc(12px+env(safe-area-inset-bottom))]">
         <div className="max-w-lg mx-auto flex gap-3">
-          <button onClick={handleClear} className="px-4 py-3 rounded-lg bg-slate-700 text-slate-300 font-medium">Limpar</button>
-          {selectedNumbers.size === 0 ? (
-             <button onClick={handleAiSuggestion} className="flex-1 py-3 rounded-lg bg-indigo-600 text-white font-bold" disabled={status !== AppStatus.IDLE}>
-               {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
+          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600 active:scale-95 transition-transform">Limpar</button>
+          {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
+             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform relative overflow-hidden`} disabled={status !== AppStatus.IDLE}>
+               {status === AppStatus.GENERATING ? (
+                   <>
+                       <span className="relative z-10">Analisando... {loadingProgress}%</span>
+                       <div className="absolute top-0 left-0 h-full bg-black/20" style={{ width: `${loadingProgress}%`, transition: 'width 0.3s ease' }}></div>
+                   </>
+               ) : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 
               onClick={handleGenerate}
-              disabled={selectionCount < MIN_SELECTION}
-              className={`flex-1 py-3 rounded-lg font-bold shadow-lg ${selectionCount < MIN_SELECTION ? 'bg-slate-600' : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'}`}
+              disabled={activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection}
+              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white active:scale-95 transition-transform ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
             >
-              {status === AppStatus.GENERATING ? 'Gerando...' : `Gerar ${possibleGamesText} Jogos`}
+              {status === AppStatus.GENERATING ? 'Gerando...' : (activeGame.id === 'federal' ? '🎫 Gerar Palpites' : (selectionCount === 0 ? '🎲 Gerar Automático' : 'Gerar Jogos'))}
             </button>
           )}
         </div>
       </footer>
+
+      <AnimatePresence>
+        <HistoryAnalysisModal 
+          isOpen={showHistoryAnalysisModal}
+          onClose={() => setShowHistoryAnalysisModal(false)}
+          activeGame={activeGame}
+          analysisYear={analysisYear}
+          setAnalysisYear={setAnalysisYear}
+          analysisTargetPoints={analysisTargetPoints}
+          setAnalysisTargetPoints={setAnalysisTargetPoints}
+          availableYears={availableYears}
+          onRunAnalysis={handleRunHistoryAnalysis}
+          isAnalysisLoading={isAnalysisLoading}
+          analysisProgress={analysisProgress}
+          analysisResults={analysisResults}
+        />
+      </AnimatePresence>
+
+      {renderGameInfo()}
+
+      {renderGameDetails()}
+
+      {/* Saved Games Modal - MOVED TO END WITH HIGHER Z-INDEX */}
+      <AnimatePresence>
+      {showSavedGamesModal && (
+          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+             <motion.div 
+               initial={{ y: "100%" }}
+               animate={{ y: 0 }}
+               exit={{ y: "100%" }}
+               transition={{ type: "spring", damping: 25, stiffness: 300 }}
+               drag="y"
+               dragConstraints={{ top: 0, bottom: 0 }}
+               dragElastic={{ top: 0, bottom: 0.5 }}
+               onDragEnd={handleDragEndSavedGames}
+               className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden"
+             >
+                {/* Pull Handle for Mobile - Área de "Pega" maior para facilitar o gesto */}
+                <div className="w-full pt-3 pb-1 cursor-grab active:cursor-grabbing bg-slate-800 flex justify-center sm:hidden" onClick={() => setShowSavedGamesModal(false)}>
+                    <div className="w-12 h-1.5 bg-slate-600 rounded-full"></div>
+                </div>
+
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900">
+                   <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
+                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))] cursor-auto" onPointerDownCapture={e => e.stopPropagation()}>
+                  {savedBatches.length === 0 ? (
+                    <div className="text-center py-10 text-slate-500 flex flex-col items-center gap-2">
+                        <span className="text-4xl opacity-20">📂</span>
+                        <p>Nenhum jogo salvo.</p>
+                        <p className="text-xs">Gere jogos e clique em "Salvar" para vê-los aqui.</p>
+                    </div>
+                  ) : (
+                    <AnimatePresence>
+                    {savedBatches.map((batch, idx) => {
+                        // Calcula o tamanho da aposta para exibir no card
+                        const sizes = batch.games.map(g => g.numbers.length);
+                        const uniqueSizes = Array.from(new Set(sizes)) as number[];
+                        const sizeLabel = uniqueSizes.length === 1 
+                            ? `${uniqueSizes[0]} Dz` 
+                            : (uniqueSizes.length > 1 ? 'Misto' : '');
+                        
+                        const sizeCount: number = uniqueSizes.length > 0 ? uniqueSizes[0] : 0;
+                        let sizeColorClass = "bg-slate-700 text-slate-300";
+                        if (sizeCount === 16) sizeColorClass = "bg-blue-600 text-white";
+                        if (sizeCount >= 17) sizeColorClass = "bg-purple-600 text-white";
+                        if (sizeCount >= 19) sizeColorClass = "bg-amber-500 text-black";
+
+                        return (
+                        <motion.div 
+                            key={batch.id || idx}
+                            layout
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100, transition: { duration: 0.2 } }}
+                            className={`bg-slate-900/50 rounded-lg border p-3 shadow-sm ${batch.gameType === activeGame.id ? 'border-slate-600 bg-slate-800/80' : 'border-slate-700 opacity-70'}`}
+                        >
+                          <div className="flex justify-between items-start mb-3 border-b border-slate-700/50 pb-2">
+                            <div>
+                               <div className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                                  <span className="uppercase text-[10px] bg-slate-700 px-1.5 rounded text-slate-300">{batch.gameType || 'lotofacil'}</span>
+                                  
+                                  {sizeLabel && (
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm ${sizeColorClass}`}>
+                                          {sizeLabel}
+                                      </span>
+                                  )}
+
+                                  <span>Conc: {batch.targetConcurso}</span>
+                                  {latestResult && batch.gameType === activeGame.id && latestResult.concurso === batch.targetConcurso && (
+                                     <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold">Atual</span>
+                                  )}
+                                </div>
+                               <div className="text-[10px] text-slate-500 mt-1">{batch.createdAt} • {batch.games.length} jogos</div>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={(e) => handleRequestDeleteBatch(e, batch.id)} 
+                              className={`${deleteConfirmBatchId === batch.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'} border border-red-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95`}
+                            >
+                              <span>🗑️</span> {deleteConfirmBatchId === batch.id ? 'Confirmar?' : 'Apagar'}
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            <AnimatePresence>
+                            {batch.games.map((gameObj) => {
+                              if (!gameObj || !gameObj.numbers) return null;
+
+                              let hits = 0;
+                              let statusLabel = <span className="text-slate-500 text-[9px]">--</span>;
+                              let styleClass = "bg-black/20 border-transparent";
+
+                              // Só calcula hits se for o jogo ativo E tiver resultado carregado
+                              if (latestResult && batch.gameType === activeGame.id) {
+                                  if (latestResult.concurso === batch.targetConcurso) {
+                                      hits = calculateHits(gameObj.numbers);
+                                      if (hits > 0) statusLabel = <span className="text-slate-300 text-[10px] font-bold">{hits} pts</span>;
+                                      
+                                      // Highlight Wins
+                                      let minWin = 11; // Default Loto
+                                      if (activeGame.id === 'megasena') minWin = 4;
+                                      if (activeGame.id === 'quina') minWin = 2;
+                                      
+                                      if (hits >= minWin) {
+                                          styleClass = "bg-emerald-900/20 border-emerald-500/40 shadow-emerald-500/10 shadow";
+                                          statusLabel = <span className="text-emerald-400 text-[10px] font-black flex items-center gap-1">🏆 {hits} PTS</span>;
+                                      }
+                                  } else if (latestResult.concurso > batch.targetConcurso) {
+                                      statusLabel = <span className="text-slate-600 text-[9px]">Passado</span>;
+                                  }
+                              }
+
+                              return (
+                                <motion.div 
+                                    key={gameObj.id} 
+                                    layout
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, x: -50, height: 0, marginBottom: 0, transition: { duration: 0.2 } }}
+                                    className={`flex flex-col p-2 rounded border transition-all overflow-hidden ${styleClass}`}
+                                >
+                                   <div className="flex justify-between items-center">
+                                       <div className="flex items-center gap-2">
+                                           <span className="text-[9px] font-bold text-slate-500 w-8">#{gameObj.gameNumber}</span>
+                                           <div className="flex gap-1 flex-wrap">
+                                              {gameObj.numbers.map(n => {
+                                                const isHit = latestResult && batch.gameType === activeGame.id && batch.targetConcurso === latestResult.concurso && resultNumbers.has(n);
+                                                return (
+                                                  <span key={n} className={`text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-mono font-bold leading-none ${isHit ? 'bg-white text-black scale-110 shadow-sm' : 'bg-slate-700 text-slate-400'}`}>
+                                                     {n.toString().padStart(2, '0')}
+                                                  </span>
+                                                );
+                                              })}
+                                           </div>
+                                       </div>
+                                       <div className="flex items-center gap-3">
+                                           {statusLabel}
+                                           <button 
+                                            onClick={(e) => handleDeleteSpecificGame(e, batch.id, gameObj.id)}
+                                            className={`${deleteConfirmGameId === gameObj.id ? 'text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded text-[10px]' : 'text-slate-600 hover:text-red-400 px-1 font-bold'}`}
+                                           >
+                                            {deleteConfirmGameId === gameObj.id ? 'Apagar?' : '✕'}
+                                           </button>
+                                       </div>
+                                   </div>
+                                </motion.div>
+                              );
+                            })}
+                            </AnimatePresence>
+                          </div>
+                        </motion.div>
+                    );
+                    })
+                    }
+                    </AnimatePresence>
+                  )}
+                </div>
+             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };

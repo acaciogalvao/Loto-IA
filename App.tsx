@@ -1594,7 +1594,7 @@ const App: React.FC = () => {
                     {savedBatches.map((batch, idx) => {
                         // Calcula o tamanho da aposta para exibir no card
                         const sizes = batch.games.map(g => g.numbers.length);
-                        const uniqueSizes = Array.from(new Set(sizes));
+                        const uniqueSizes = Array.from(new Set(sizes)) as number[];
                         const sizeLabel = uniqueSizes.length === 1 
                             ? `${uniqueSizes[0]} Dz` 
                             : (uniqueSizes.length > 1 ? 'Misto' : '');
