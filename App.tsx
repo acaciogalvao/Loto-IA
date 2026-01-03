@@ -8,6 +8,13 @@ import CountdownTimer from './components/CountdownTimer';
 import { GAMES, DEFAULT_GAME } from './utils/gameConfig';
 import { AppStatus, AnalysisResult, LotteryResult, TrendResult, HistoricalAnalysis, HistoryCheckResult, PastGameResult, SavedBetBatch, DetailedStats, GameConfig } from './types';
 
+// --- HAPTIC FEEDBACK HELPER ---
+const vibrate = (ms: number = 10) => {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate(ms);
+  }
+};
+
 const App: React.FC = () => {
   // --- STATE MANAGEMENT ---
   const [activeGame, setActiveGame] = useState<GameConfig>(DEFAULT_GAME);
@@ -140,6 +147,7 @@ const App: React.FC = () => {
   };
 
   const handleGameChange = (gameId: string) => {
+    vibrate(15);
     const newGame = GAMES[gameId];
     if (newGame) {
         setActiveGame(newGame);
@@ -178,6 +186,7 @@ const App: React.FC = () => {
     else if (activeGame.id === 'lotomania') threshold = 15;
     
     if (maxHits >= threshold && threshold > 0) {
+      vibrate(500); // Vibração longa para vitória
       setNotification({
         msg: `🎉 Parabéns! O sistema detectou ${maxHits} pontos nos seus jogos salvos da ${activeGame.name}!`,
         type: 'success'
@@ -195,11 +204,13 @@ const App: React.FC = () => {
   }, [latestResult, activeGame.id]);
 
   const toggleNumber = (num: number) => {
+    vibrate(8); // Vibração curta ao tocar
     const newSelection = new Set(selectedNumbers);
     if (newSelection.has(num)) {
       newSelection.delete(num);
     } else {
       if (newSelection.size >= activeGame.maxSelection) {
+          vibrate(50); // Vibração de erro
           setNotification({ msg: `Máximo de ${activeGame.maxSelection} números para este fechamento.`, type: 'info' });
           setTimeout(() => setNotification(null), 2000);
           return;
@@ -208,6 +219,7 @@ const App: React.FC = () => {
           const colIndex = Math.floor(Number(num) / 10);
           const currentInCol = Array.from(newSelection).filter(n => Math.floor(Number(n) / 10) === colIndex).length;
           if (currentInCol >= 3) {
+             vibrate(50);
              setNotification({ msg: `Máximo de 3 números por coluna no Super Sete.`, type: 'info' });
              setTimeout(() => setNotification(null), 2000);
              return;
@@ -239,6 +251,7 @@ const App: React.FC = () => {
 
   // NOVA FUNÇÃO: Troca o tamanho e preenche automaticamente
   const handleGameSizeChangeWithAutoSelect = async (newSize: number) => {
+      vibrate(10);
       setGameSize(newSize);
       
       // Feedback visual imediato
@@ -271,6 +284,7 @@ const App: React.FC = () => {
   };
 
   const handleClear = () => {
+    vibrate(20);
     setSelectedNumbers(new Set());
     setGeneratedGames([]);
     setAnalysis(null);
@@ -285,10 +299,12 @@ const App: React.FC = () => {
 
   const toggleGameStats = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
+    vibrate(10);
     setExpandedGameStats(prev => prev === index ? null : index);
   };
 
   const handleGenerateTop200 = async () => {
+    vibrate(20);
     if (!latestResult) return;
     setStatus(AppStatus.GENERATING);
     setGeneratedGames([]);
@@ -317,6 +333,7 @@ const App: React.FC = () => {
       setStatus(AppStatus.SUCCESS);
       setLoadingProgress(0);
       
+      vibrate(100);
       setNotification({
         msg: `Estratégia Padrão Ouro: ${winnersOnly.length} concursos vencedores analisados!`,
         type: 'success'
@@ -337,6 +354,7 @@ const App: React.FC = () => {
   const getAnalysisCacheKey = (year: number) => `lotosmart_analysis_${activeGame.id}_${year}`;
 
   const handleOpenHistoryAnalysis = () => {
+      vibrate(15);
       // Apenas abre o modal, limpa resultados e progresso. O usuário deve clicar em buscar.
       setShowHistoryAnalysisModal(true);
       setAnalysisResults([]);
@@ -344,6 +362,7 @@ const App: React.FC = () => {
   };
 
   const handleRunHistoryAnalysis = async () => {
+      vibrate(10);
       const year = analysisYear;
       const cacheKey = getAnalysisCacheKey(year);
       
@@ -360,6 +379,7 @@ const App: React.FC = () => {
                   setAnalysisResults(parsed);
                   setAnalysisProgress(100);
                   setIsAnalysisLoading(false);
+                  vibrate(50);
                   setNotification({ msg: `Dados de ${year} carregados do cache!`, type: 'success' });
                   setTimeout(() => setNotification(null), 1500);
                   return; // Sai se achou no cache
@@ -404,6 +424,7 @@ const App: React.FC = () => {
                   localStorage.setItem(cacheKey, JSON.stringify(strictYearResults));
               } catch(e) { console.error("Cache cheio na análise", e); }
           }
+          vibrate(50);
 
       } catch (e) {
           console.error("Erro na analise historica", e);
@@ -415,6 +436,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerateFederal = () => {
+      vibrate(20);
       setStatus(AppStatus.GENERATING);
       const limit = Number(generationLimit) || 5;
       
@@ -426,12 +448,14 @@ const App: React.FC = () => {
           }
           setGeneratedGames(games);
           setStatus(AppStatus.SUCCESS);
+          vibrate(50);
           setNotification({msg: "Bilhetes da sorte gerados!", type: 'success'});
           setTimeout(() => setNotification(null), 2000);
       }, 500);
   };
 
   const handleGenerate = async () => {
+    vibrate(20);
     if (activeGame.id === 'federal') {
         handleGenerateFederal();
         return;
@@ -601,6 +625,7 @@ const App: React.FC = () => {
             } catch (e) { console.log("Analysis skipped"); }
         }
         
+        vibrate(100);
         setStatus(AppStatus.SUCCESS);
       } catch (error) {
         console.error(error);
@@ -616,6 +641,7 @@ const App: React.FC = () => {
   };
 
   const handleAiSuggestion = async () => {
+    vibrate(20);
     setStatus(AppStatus.GENERATING);
     try {
       const suggestions = await getAiSuggestions(activeGame.name, activeGame.minSelection, activeGame.totalNumbers);
@@ -626,6 +652,7 @@ const App: React.FC = () => {
         setGameSize(capped.length); // Sincroniza o tamanho também na sugestão IA
         setGeneratedGames([]);
         setStatus(AppStatus.IDLE);
+        vibrate(50);
       }
     } catch (e) {
       console.error(e);
@@ -636,6 +663,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveBatch = () => {
+    vibrate(20);
     if (generatedGames.length === 0 || !latestResult) return;
     const targetConcurso = latestResult.proximoConcurso;
     const gamesPayload = generatedGames.map((g, i) => ({ 
@@ -653,6 +681,7 @@ const App: React.FC = () => {
 
   const handleSaveSingleGame = (e: React.MouseEvent, game: number[], originalIndex: number) => {
     e.stopPropagation(); 
+    vibrate(10);
     if (!latestResult) return;
     const targetConcurso = latestResult.proximoConcurso;
     const originalGameNumber = originalIndex + 1;
@@ -670,6 +699,7 @@ const App: React.FC = () => {
   };
 
   const handleCopyGame = (game: number[], index: number) => {
+    vibrate(10);
     const text = activeGame.id === 'federal' 
         ? game[0].toString()
         : game.join(', ');
@@ -684,11 +714,15 @@ const App: React.FC = () => {
     });
   };
 
-  const handleWhatsAppShare = () => {
+  // --- NATIVE SHARE API ---
+  const handleSmartShare = async () => {
+    vibrate(10);
     if (generatedGames.length === 0) return;
     const nextDate = latestResult?.dataProximoConcurso || "Em breve";
     let message = `🤖 *LotoSmart AI - ${activeGame.name}*\n`;
     message += `📅 Próximo Sorteio: ${nextDate}\n\n`;
+    
+    // Limita para não ficar muito grande no compartilhamento nativo
     generatedGames.slice(0, 50).forEach((game, index) => {
       const line = activeGame.id === 'federal'
           ? game[0].toString()
@@ -697,6 +731,22 @@ const App: React.FC = () => {
     });
     if (generatedGames.length > 50) message += `\n...e mais ${generatedGames.length - 50} jogos.`;
     message += `\n🍀 Boa sorte!`;
+
+    // Tenta API Nativa (Mobile)
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: `LotoSmart AI - ${activeGame.name}`,
+                text: message,
+            });
+            return;
+        } catch (error) {
+            console.log('Error sharing:', error);
+            // Fallback para WhatsApp Link se cancelar ou falhar
+        }
+    }
+
+    // Fallback WhatsApp Web
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -705,6 +755,7 @@ const App: React.FC = () => {
   const handleDeleteBatch = (e: React.MouseEvent, batchId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    vibrate(20);
     
     if(!window.confirm('Tem certeza que deseja apagar TODOS os jogos deste grupo?')) return;
     
@@ -719,6 +770,7 @@ const App: React.FC = () => {
   const handleDeleteSpecificGame = (e: React.MouseEvent, batchId: string, gameId: string) => {
     e.preventDefault(); 
     e.stopPropagation(); 
+    vibrate(10);
     const updatedBatches = deleteGame(batchId, gameId);
     setSavedBatches(updatedBatches);
   };
@@ -788,8 +840,9 @@ const App: React.FC = () => {
   const renderGameInfo = () => {
     if (!showInfoModal) return null;
     return (
-        <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-slate-800 w-full max-w-lg rounded-xl overflow-hidden shadow-2xl border border-slate-700 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+            <div className="bg-slate-800 w-full max-w-lg rounded-t-2xl sm:rounded-xl overflow-hidden shadow-2xl border-t border-x sm:border border-slate-700 max-h-[90vh] flex flex-col">
+                <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
                 <div className={`bg-${activeGame.color}-600 p-4 flex justify-between items-center text-white`}>
                     <h3 className="font-bold text-lg flex items-center gap-2">
                         ℹ️ Como Jogar: {activeGame.name}
@@ -838,15 +891,15 @@ const App: React.FC = () => {
 
   const renderGameDetails = () => {
     if (!viewingGame) return null;
-    // Tenta encontrar o jogo anterior na lista de análise se estiver preenchida para calcular repetidos
     const prevGame = analysisResults.find(g => g.concurso === viewingGame.concurso - 1);
     const prevNumbers = prevGame ? prevGame.dezenas.map(d => parseInt(d, 10)) : undefined;
     const stats = calculateDetailedStats(viewingGame.dezenas.map(d => parseInt(d, 10)), prevNumbers, activeGame);
     
     return (
-      <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-        <div className="bg-white w-full max-w-lg rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className={`bg-${activeGame.color}-600 text-white p-4 flex justify-between items-center relative shadow-lg`}>
+      <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+        <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-2 mb-1 sm:hidden absolute top-0 left-0 right-0 z-50"></div>
+            <div className={`bg-${activeGame.color}-600 text-white p-4 pt-5 sm:pt-4 flex justify-between items-center relative shadow-lg`}>
                 <h3 className="font-bold text-center w-full text-lg">Resultado {activeGame.name} #{viewingGame.concurso}</h3>
                 <button onClick={() => setViewingGame(null)} className="absolute right-3 w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 rounded-full font-bold">✕</button>
             </div>
@@ -919,10 +972,10 @@ const App: React.FC = () => {
   const selectionCount = selectedNumbers.size;
 
   return (
-    <div className={`min-h-screen bg-slate-900 pb-36 font-sans text-slate-100`}>
+    <div className={`min-h-screen bg-slate-900 pb-[calc(90px+env(safe-area-inset-bottom))] font-sans text-slate-100`}>
       <div className={`fixed inset-0 z-50 bg-black/80 backdrop-blur-sm transition-opacity duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsMenuOpen(false)}>
          <div className={`absolute top-0 left-0 bottom-0 w-64 bg-slate-800 shadow-2xl transform transition-transform duration-300 ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} overflow-y-auto`} onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-purple-900 to-slate-800">
+            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-purple-900 to-slate-800 pt-[calc(20px+env(safe-area-inset-top))]">
                 <h2 className="font-bold text-xl text-white">Jogos</h2>
                 <button onClick={() => setIsMenuOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
@@ -942,7 +995,7 @@ const App: React.FC = () => {
       </div>
 
       {notification && (
-        <div className="fixed top-4 left-4 right-4 z-[100] animate-bounce-in">
+        <div className="fixed top-4 left-4 right-4 z-[100] animate-bounce-in pt-[env(safe-area-inset-top)]">
           <div className={`${notification.type === 'error' ? 'bg-red-600' : (notification.type === 'success' ? 'bg-emerald-600' : 'bg-blue-600')} text-white p-4 rounded-xl shadow-2xl flex items-center justify-between border border-white/20`}>
             <span className="text-sm font-bold pr-2">{notification.msg}</span>
             <button onClick={() => setNotification(null)} className="text-white/80 hover:text-white font-bold">✕</button>
@@ -950,10 +1003,10 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className="bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-40 shadow-md">
+      <header className="bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-40 shadow-md pt-[calc(12px+env(safe-area-inset-top))]">
         <div className="flex justify-between items-center max-w-lg mx-auto">
           <div className="flex items-center gap-3">
-            <button onClick={() => setIsMenuOpen(true)} className="p-2 text-slate-300 hover:text-white bg-slate-700/50 rounded-lg">
+            <button onClick={() => setIsMenuOpen(true)} className="p-2 text-slate-300 hover:text-white bg-slate-700/50 rounded-lg active:scale-95 transition-transform">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
             </button>
             <div className="flex items-center gap-2">
@@ -961,12 +1014,12 @@ const App: React.FC = () => {
                     <h1 className={`text-lg font-bold text-${activeGame.color}-400 leading-none`}>{activeGame.name}</h1>
                     <span className="text-[10px] text-slate-500 font-bold tracking-wider">LOTOSMART AI</span>
                 </div>
-                <button onClick={() => setShowInfoModal(true)} className="w-6 h-6 rounded-full bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold border border-slate-600 ml-1" title="Como Jogar">ℹ️</button>
+                <button onClick={() => setShowInfoModal(true)} className="w-6 h-6 rounded-full bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold border border-slate-600 ml-1 active:scale-95" title="Como Jogar">ℹ️</button>
             </div>
           </div>
           <button 
             onClick={() => setShowSavedGamesModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs font-bold text-slate-200 border border-slate-600"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs font-bold text-slate-200 border border-slate-600 active:scale-95 transition-transform"
           >
             <span>📁</span>
             {savedBatches.filter(b => b.gameType === activeGame.id).length > 0 && (
@@ -997,7 +1050,7 @@ const App: React.FC = () => {
                       <button 
                         onClick={loadLatestResult} 
                         disabled={isResultLoading}
-                        className="bg-white/10 hover:bg-white/20 text-white/80 p-1 rounded-full transition-colors"
+                        className="bg-white/10 hover:bg-white/20 text-white/80 p-1 rounded-full transition-colors active:rotate-180"
                         title="Atualizar Resultado Agora"
                       >
                          <svg className={`w-3 h-3 ${isResultLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -1195,8 +1248,14 @@ const App: React.FC = () => {
                     )}
                 </div>
                 <div className="flex w-full gap-2">
-                    <button onClick={handleSaveBatch} className="flex-1 px-4 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg transition-colors">Salvar Todos</button>
-                    <button onClick={handleWhatsAppShare} className="flex-1 px-4 py-3 bg-green-600/20 hover:bg-green-600/30 border border-green-500/50 text-green-200 text-xs font-bold rounded-lg transition-colors">Enviar WhatsApp</button>
+                    <button onClick={handleSaveBatch} className="flex-1 px-4 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg transition-colors active:scale-95">Salvar Todos</button>
+                    <button onClick={handleSmartShare} className="flex-1 px-4 py-3 bg-green-600/20 hover:bg-green-600/30 border border-green-500/50 text-green-200 text-xs font-bold rounded-lg transition-colors active:scale-95 flex items-center justify-center gap-1">
+                        {typeof navigator.share !== 'undefined' ? (
+                            <><span>📲</span> Compartilhar</>
+                        ) : (
+                            <><span>💬</span> WhatsApp</>
+                        )}
+                    </button>
                 </div>
             </div>
             
@@ -1310,18 +1369,18 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-lg z-40 safe-area-pb">
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-40 pb-[calc(12px+env(safe-area-inset-bottom))]">
         <div className="max-w-lg mx-auto flex gap-3">
-          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600">Limpar</button>
+          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600 active:scale-95 transition-transform">Limpar</button>
           {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
-             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg`} disabled={status !== AppStatus.IDLE}>
+             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform`} disabled={status !== AppStatus.IDLE}>
                {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 
               onClick={handleGenerate}
               disabled={activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection}
-              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
+              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white active:scale-95 transition-transform ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
             >
               {status === AppStatus.GENERATING ? 'Gerando...' : (activeGame.id === 'federal' ? '🎫 Gerar Palpites' : (selectionCount === 0 ? '🎲 Gerar Automático' : 'Gerar Jogos'))}
             </button>
@@ -1329,18 +1388,21 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* MODAL DE RAIO-X HISTÓRICO (DETALHADO POR PONTUAÇÃO) */}
+      {/* MODAL DE RAIO-X HISTÓRICO (DETALHADO POR PONTUAÇÃO) - BOTTOM SHEET ON MOBILE */}
       {showHistoryAnalysisModal && (
-          <div className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in safe-area-pb">
-              <div className="bg-slate-900 w-full max-w-2xl max-h-[85dvh] sm:max-h-[90vh] rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+          <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+              <div className="bg-slate-900 w-full max-w-2xl max-h-[85vh] sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col overflow-hidden">
                   
+                  {/* Pull Handle for Mobile */}
+                  <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
+
                   {/* HEADER */}
                   <div className={`p-4 bg-gradient-to-r from-${activeGame.color}-900 to-slate-900 border-b border-${activeGame.color}-500/20 flex justify-between items-center`}>
                       <h3 className="text-lg font-bold text-white flex items-center gap-2">
                         <span>🔍</span> 
-                        Raio-X Histórico: {activeGame.name}
+                        Raio-X Histórico
                       </h3>
-                      <button onClick={() => setShowHistoryAnalysisModal(false)} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700 font-bold">✕</button>
+                      <button onClick={() => setShowHistoryAnalysisModal(false)} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700 font-bold active:scale-95">✕</button>
                   </div>
 
                   {/* CONTROLS */}
@@ -1392,7 +1454,7 @@ const App: React.FC = () => {
                       <button 
                           onClick={handleRunHistoryAnalysis}
                           disabled={isAnalysisLoading}
-                          className={`w-full py-2.5 rounded-lg font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2 ${isAnalysisLoading ? 'bg-slate-700 text-slate-400' : `bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-900/30`}`}
+                          className={`w-full py-2.5 rounded-lg font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2 active:scale-95 ${isAnalysisLoading ? 'bg-slate-700 text-slate-400' : `bg-emerald-600 text-white hover:bg-emerald-500 shadow-emerald-900/30`}`}
                       >
                           {isAnalysisLoading ? 'Buscando...' : '🔍 Buscar Resultados'}
                       </button>
@@ -1411,7 +1473,7 @@ const App: React.FC = () => {
                   )}
 
                   {/* CONTENT LIST */}
-                  <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px]">
+                  <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px] pb-[calc(20px+env(safe-area-inset-bottom))]">
                       {isAnalysisLoading ? (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-50 gap-4">
                              {/* UI Compacta mas com cores vibrantes */}
@@ -1523,15 +1585,16 @@ const App: React.FC = () => {
 
       {renderGameDetails()}
 
-      {/* Saved Games Modal - MOVED TO END WITH HIGHER Z-INDEX */}
+      {/* Saved Games Modal - BOTTOM SHEET ON MOBILE */}
       {showSavedGamesModal && (
-          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-             <div className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-xl border border-slate-700 shadow-2xl flex flex-col">
+          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+             <div className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col">
+                <div className="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900">
                    <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
-                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
+                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold active:scale-95">✕</button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))]">
                   {savedBatches.length === 0 ? (
                     <div className="text-center py-10 text-slate-500 flex flex-col items-center gap-2">
                         <span className="text-4xl opacity-20">📂</span>
@@ -1608,7 +1671,7 @@ const App: React.FC = () => {
                                            {statusLabel}
                                            <button 
                                             onClick={(e) => handleDeleteSpecificGame(e, batch.id, gameObj.id)}
-                                            className="text-slate-600 hover:text-red-400 font-bold px-1"
+                                            className="text-slate-600 hover:text-red-400 font-bold px-1 w-6 h-6 flex items-center justify-center"
                                            >✕</button>
                                        </div>
                                    </div>
