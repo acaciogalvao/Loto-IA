@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, PanInfo } from 'framer-motion';
 import { PastGameResult, GameConfig } from '../types';
 
 interface HistoryAnalysisModalProps {
@@ -49,6 +49,12 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
     exit: { y: "100%", opacity: 0 }
   };
 
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (info.offset.y > 100) {
+      onClose();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <motion.div 
@@ -56,11 +62,17 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
         animate="visible"
         exit="exit"
         variants={variants}
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={{ top: 0, bottom: 0.5 }}
+        onDragEnd={handleDragEnd}
         className="bg-slate-900 w-full max-w-2xl max-h-[85vh] sm:max-h-[90vh] rounded-t-2xl sm:rounded-xl border-t border-x sm:border border-slate-700 shadow-2xl flex flex-col overflow-hidden"
       >
         
-        {/* Pull Handle for Mobile */}
-        <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-3 mb-1 sm:hidden"></div>
+        {/* Pull Handle for Mobile - Área de "Pega" maior para facilitar o gesto */}
+        <div className="w-full pt-3 pb-1 cursor-grab active:cursor-grabbing bg-slate-900 flex justify-center" onClick={onClose}>
+            <div className="w-12 h-1.5 bg-slate-700 rounded-full"></div>
+        </div>
 
         {/* HEADER */}
         <div className={`p-4 bg-gradient-to-r from-${activeGame.color}-900 to-slate-900 border-b border-${activeGame.color}-500/20 flex justify-between items-center`}>
@@ -138,7 +150,7 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
         )}
 
         {/* CONTENT LIST */}
-        <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px] pb-[calc(20px+env(safe-area-inset-bottom))]">
+        <div className="flex-1 overflow-y-auto bg-slate-950 p-3 sm:p-4 space-y-3 relative min-h-[300px] pb-[calc(20px+env(safe-area-inset-bottom))] cursor-auto" onPointerDownCapture={e => e.stopPropagation()}>
             {isAnalysisLoading ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-50 gap-4">
                    <div className="relative">

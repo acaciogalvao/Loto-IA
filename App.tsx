@@ -1022,9 +1022,31 @@ const App: React.FC = () => {
 
       <main className="max-w-lg mx-auto p-4 space-y-5">
         
-        {/* ... (Previous main content remains same) ... */}
+        {/* LATEST RESULT / SKELETON SCREEN */}
         {isResultLoading ? (
-          <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 animate-pulse h-32"></div>
+          <div className="bg-slate-800/80 rounded-xl border border-slate-700 shadow-md p-4 animate-pulse relative overflow-hidden h-[180px]">
+             {/* Gradient Shine Effect */}
+             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 translate-x-[-100%] animate-[shimmer_1.5s_infinite]"></div>
+             
+             {/* Header Skeleton */}
+             <div className="flex justify-between mb-6">
+                <div>
+                   <div className="h-4 bg-slate-700 rounded w-24 mb-2"></div>
+                   <div className="h-3 bg-slate-700 rounded w-16"></div>
+                </div>
+                <div className="h-5 bg-slate-700 rounded w-20"></div>
+             </div>
+             
+             {/* Balls Skeleton */}
+             <div className="flex flex-wrap gap-2 mb-6">
+                {[...Array(15)].map((_, i) => (
+                   <div key={i} className="w-7 h-7 rounded-full bg-slate-700/80"></div>
+                ))}
+             </div>
+             
+             {/* Footer Skeleton */}
+             <div className="h-8 bg-slate-700/50 rounded-lg w-full mt-auto"></div>
+          </div>
         ) : latestResult ? (
           <div className="bg-slate-800/80 rounded-xl border border-slate-700 shadow-md relative overflow-hidden group">
             <div className={`absolute top-0 right-0 w-32 h-32 bg-${activeGame.color}-500/10 rounded-full blur-2xl -mr-10 -mt-10`}></div>
@@ -1091,7 +1113,7 @@ const App: React.FC = () => {
           </div>
         ) : null}
 
-        {/* Buttons */}
+        {/* ... (Buttons and other UI remain same) ... */}
         <div className="grid grid-cols-2 gap-3">
           {activeGame.id !== 'federal' && (
           <button 
@@ -1358,18 +1380,18 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-lg z-40 safe-area-pb">
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-md border-t border-slate-700 p-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-40 pb-[calc(12px+env(safe-area-inset-bottom))]">
         <div className="max-w-lg mx-auto flex gap-3">
-          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600">Limpar</button>
+          <button onClick={handleClear} className="px-4 py-3 rounded-xl bg-slate-700 text-slate-300 font-bold border border-slate-600 active:scale-95 transition-transform">Limpar</button>
           {selectedNumbers.size === 0 && activeGame.id !== 'federal' ? (
-             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg`} disabled={status !== AppStatus.IDLE}>
+             <button onClick={handleAiSuggestion} className={`flex-1 py-3 rounded-xl bg-${activeGame.color}-700 text-white font-bold border border-${activeGame.color}-500 shadow-lg active:scale-95 transition-transform`} disabled={status !== AppStatus.IDLE}>
                {status === AppStatus.GENERATING ? '...' : '🔮 Palpite IA'}
              </button>
           ) : (
             <button 
               onClick={handleGenerate}
               disabled={activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection}
-              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
+              className={`flex-1 py-3 rounded-xl font-bold shadow-lg text-white active:scale-95 transition-transform ${activeGame.id !== 'federal' && selectionCount > 0 && selectionCount < activeGame.minSelection ? 'bg-slate-600 opacity-50' : `bg-gradient-to-r from-${activeGame.color}-600 to-${activeGame.color}-500`}`}
             >
               {status === AppStatus.GENERATING ? 'Gerando...' : (activeGame.id === 'federal' ? '🎫 Gerar Palpites' : (selectionCount === 0 ? '🎲 Gerar Automático' : 'Gerar Jogos'))}
             </button>
