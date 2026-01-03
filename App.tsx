@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, PanInfo } from 'framer-motion';
 import { generateCombinations, getStats, generateBalancedMatrix, calculateHotNumbers, getYearsList, GAME_YEAR_STARTS, calculateDetailedStats, filterGamesWithWinners } from './utils/lotteryLogic';
 import { getAiSuggestions, analyzeClosing, generateSmartClosing, getHistoricalBestNumbers } from './services/geminiService';
 import { fetchLatestResult, fetchPastResults, fetchResultsRange, getFullHistoryWithCache } from './services/lotteryService';
@@ -57,6 +57,10 @@ const App: React.FC = () => {
   const [savedBatches, setSavedBatches] = useState<SavedBetBatch[]>([]);
   const [showSavedGamesModal, setShowSavedGamesModal] = useState(false);
   const [notification, setNotification] = useState<{msg: string, type: 'success' | 'info' | 'error'} | null>(null);
+  
+  // DELETE CONFIRMATION STATES
+  const [deleteConfirmBatchId, setDeleteConfirmBatchId] = useState<string | null>(null); // ID do lote pendente
+  const [deleteConfirmGameId, setDeleteConfirmGameId] = useState<string | null>(null); // ID do jogo individual pendente
 
   // Clipboard state
   const [copiedGameIndex, setCopiedGameIndex] = useState<number | null>(null);
@@ -703,7 +707,7 @@ const App: React.FC = () => {
     });
   };
 
-  // --- NATIVE SHARE API ---
+  // --- NATIVE SHARE API FOR BATCH ---
   const handleSmartShare = async () => {
     vibrate(10);
     if (generatedGames.length === 0) return;
@@ -740,28 +744,71 @@ const App: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  // --- DELETE LOGIC ---
+  // --- NATIVE SHARE API FOR SINGLE GAME ---
+  const handleShareSingleGame = async (e: React.MouseEvent, game: number[], index: number) => {
+      e.stopPropagation();
+      vibrate(10);
+      
+      const gameText = activeGame.id === 'federal' 
+          ? `Bilhete: ${game[0]}` 
+          : `Dezenas: ${game.map(n => n.toString().padStart(2, '0')).join(', ')}`;
+      
+      const shareData = {
+          title: `LotoSmart AI - ${activeGame.name}`,
+          text: `🔮 Palpite LotoSmart AI - ${activeGame.name}\n\n${gameText}\n\n🍀 Boa sorte!`
+      };
+
+      if (navigator.share) {
+          try {
+              await navigator.share(shareData);
+          } catch (err) {
+              console.log('User dismissed share');
+          }
+      } else {
+          // Fallback para WhatsApp
+          const url = `https://wa.me/?text=${encodeURIComponent(shareData.text)}`;
+          window.open(url, '_blank');
+      }
+  };
+
+  // --- DELETE LOGIC (2-STEP CONFIRMATION) ---
+  
   const handleDeleteBatch = (e: React.MouseEvent, batchId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    vibrate(20);
+    vibrate(15);
     
-    if(!window.confirm('Tem certeza que deseja apagar TODOS os jogos deste grupo?')) return;
-    
-    // Passa o ID diretamente
-    const updatedBatches = deleteBatch(batchId);
-    setSavedBatches(updatedBatches);
-    
-    setNotification({ msg: 'Grupo de jogos excluído com sucesso.', type: 'success' });
-    setTimeout(() => setNotification(null), 2000);
+    if (deleteConfirmBatchId === batchId) {
+        // Confirmed
+        const updatedBatches = deleteBatch(batchId);
+        setSavedBatches(updatedBatches);
+        setDeleteConfirmBatchId(null);
+        vibrate(50);
+        setNotification({ msg: 'Grupo excluído.', type: 'info' });
+        setTimeout(() => setNotification(null), 2000);
+    } else {
+        // Request
+        setDeleteConfirmBatchId(batchId);
+        setTimeout(() => setDeleteConfirmBatchId(prev => prev === batchId ? null : prev), 3000);
+    }
   };
 
   const handleDeleteSpecificGame = (e: React.MouseEvent, batchId: string, gameId: string) => {
     e.preventDefault(); 
     e.stopPropagation(); 
     vibrate(10);
-    const updatedBatches = deleteGame(batchId, gameId);
-    setSavedBatches(updatedBatches);
+    
+    if (deleteConfirmGameId === gameId) {
+        const updatedBatches = deleteGame(batchId, gameId);
+        setSavedBatches(updatedBatches);
+        setDeleteConfirmGameId(null);
+        vibrate(50);
+        setNotification({ msg: 'Jogo removido.', type: 'info' });
+        setTimeout(() => setNotification(null), 1500);
+    } else {
+        setDeleteConfirmGameId(gameId);
+        setTimeout(() => setDeleteConfirmGameId(prev => prev === gameId ? null : prev), 3000);
+    }
   };
 
   const calculateHits = (game: number[], targetResultSet?: Set<number>) => {
@@ -960,6 +1007,12 @@ const App: React.FC = () => {
 
   const selectionCount = selectedNumbers.size;
 
+  const handleDragEndSavedGames = (_: any, info: PanInfo) => {
+    if (info.offset.y > 100) {
+      setShowSavedGamesModal(false);
+    }
+  };
+
   return (
     <div className={`min-h-screen bg-slate-900 pb-[calc(90px+env(safe-area-inset-bottom))] font-sans text-slate-100`}>
       <div className={`fixed inset-0 z-50 bg-black/80 backdrop-blur-sm transition-opacity duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsMenuOpen(false)}>
@@ -1113,7 +1166,7 @@ const App: React.FC = () => {
           </div>
         ) : null}
 
-        {/* ... (Buttons and other UI remain same) ... */}
+        {/* Buttons */}
         <div className="grid grid-cols-2 gap-3">
           {activeGame.id !== 'federal' && (
           <button 
@@ -1320,6 +1373,14 @@ const App: React.FC = () => {
                         </span>
                         
                          <div className="flex gap-2 relative z-20">
+                            {/* SHARE SINGLE GAME */}
+                            <div 
+                                onClick={(e) => handleShareSingleGame(e, game, idx)}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-green-600 text-white flex items-center gap-1 transition-colors"
+                                title="Compartilhar este jogo"
+                            >
+                              📲
+                            </div>
                             <div onClick={(e) => toggleGameStats(e, idx)} className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-white/20 text-white flex items-center gap-1 transition-colors">
                               📊 Stats
                             </div>
@@ -1429,14 +1490,22 @@ const App: React.FC = () => {
                animate={{ y: 0 }}
                exit={{ y: "100%" }}
                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-               className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border border-slate-700 shadow-2xl flex flex-col"
+               drag="y"
+               dragConstraints={{ top: 0, bottom: 0 }}
+               dragElastic={{ top: 0, bottom: 0.5 }}
+               onDragEnd={handleDragEndSavedGames}
+               className="bg-slate-800 w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden"
              >
-                <div className="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mt-2 mb-1 sm:hidden"></div>
+                {/* Pull Handle for Mobile - Área de "Pega" maior para facilitar o gesto */}
+                <div className="w-full pt-3 pb-1 cursor-grab active:cursor-grabbing bg-slate-800 flex justify-center sm:hidden" onClick={() => setShowSavedGamesModal(false)}>
+                    <div className="w-12 h-1.5 bg-slate-600 rounded-full"></div>
+                </div>
+
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900">
                    <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
                    <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))]">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))] cursor-auto" onPointerDownCapture={e => e.stopPropagation()}>
                   {savedBatches.length === 0 ? (
                     <div className="text-center py-10 text-slate-500 flex flex-col items-center gap-2">
                         <span className="text-4xl opacity-20">📂</span>
@@ -1444,8 +1513,16 @@ const App: React.FC = () => {
                         <p className="text-xs">Gere jogos e clique em "Salvar" para vê-los aqui.</p>
                     </div>
                   ) : (
-                    savedBatches.map((batch, idx) => (
-                        <div key={batch.id || idx} className={`bg-slate-900/50 rounded-lg border p-3 shadow-sm ${batch.gameType === activeGame.id ? 'border-slate-600 bg-slate-800/80' : 'border-slate-700 opacity-70'}`}>
+                    <AnimatePresence>
+                    {savedBatches.map((batch, idx) => (
+                        <motion.div 
+                            key={batch.id || idx}
+                            layout
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100, transition: { duration: 0.2 } }}
+                            className={`bg-slate-900/50 rounded-lg border p-3 shadow-sm ${batch.gameType === activeGame.id ? 'border-slate-600 bg-slate-800/80' : 'border-slate-700 opacity-70'}`}
+                        >
                           <div className="flex justify-between items-start mb-3 border-b border-slate-700/50 pb-2">
                             <div>
                                <div className="text-sm font-bold text-white flex items-center gap-2">
@@ -1460,12 +1537,13 @@ const App: React.FC = () => {
                             <button 
                               type="button"
                               onClick={(e) => handleDeleteBatch(e, batch.id)} 
-                              className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95"
+                              className={`${deleteConfirmBatchId === batch.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'} border border-red-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95`}
                             >
-                              <span>🗑️</span> Apagar
+                              <span>🗑️</span> {deleteConfirmBatchId === batch.id ? 'Confirmar?' : 'Apagar'}
                             </button>
                           </div>
                           <div className="space-y-2">
+                            <AnimatePresence>
                             {batch.games.map((gameObj) => {
                               if (!gameObj || !gameObj.numbers) return null;
 
@@ -1494,7 +1572,14 @@ const App: React.FC = () => {
                               }
 
                               return (
-                                <div key={gameObj.id} className={`flex flex-col p-2 rounded border transition-all ${styleClass}`}>
+                                <motion.div 
+                                    key={gameObj.id} 
+                                    layout
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, x: -50, height: 0, marginBottom: 0, transition: { duration: 0.2 } }}
+                                    className={`flex flex-col p-2 rounded border transition-all overflow-hidden ${styleClass}`}
+                                >
                                    <div className="flex justify-between items-center">
                                        <div className="flex items-center gap-2">
                                            <span className="text-[9px] font-bold text-slate-500 w-8">#{gameObj.gameNumber}</span>
@@ -1513,16 +1598,21 @@ const App: React.FC = () => {
                                            {statusLabel}
                                            <button 
                                             onClick={(e) => handleDeleteSpecificGame(e, batch.id, gameObj.id)}
-                                            className="text-slate-600 hover:text-red-400 font-bold px-1"
-                                           >✕</button>
+                                            className={`${deleteConfirmGameId === gameObj.id ? 'text-red-500 font-bold bg-red-500/10 px-2 py-0.5 rounded text-[10px]' : 'text-slate-600 hover:text-red-400 px-1 font-bold'}`}
+                                           >
+                                            {deleteConfirmGameId === gameObj.id ? 'Apagar?' : '✕'}
+                                           </button>
                                        </div>
                                    </div>
-                                </div>
+                                </motion.div>
                               );
                             })}
+                            </AnimatePresence>
                           </div>
-                        </div>
+                        </motion.div>
                     ))
+                    }
+                    </AnimatePresence>
                   )}
                 </div>
              </motion.div>
