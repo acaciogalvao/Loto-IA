@@ -71,7 +71,17 @@ const App: React.FC = () => {
   // Derived constants based on activeGame
   const allNumbers = useMemo(() => {
     if (activeGame.id === 'supersete') {
-        return Array.from({ length: 70 }, (_, i) => i); 
+        const nums = [];
+        for (let val = 0; val <= 9; val++) { // 10 Linhas visuais
+            for (let col = 0; col < 7; col++) { // 7 Colunas visuais
+                nums.push(col * 10 + val);
+            }
+        }
+        return nums;
+    }
+    if (activeGame.id === 'lotomania') {
+        // Lotomania usa 00-99. Internal logic uses 0-99.
+        return Array.from({ length: 100 }, (_, i) => i);
     }
     if (activeGame.id === 'federal') {
         return [];
@@ -79,7 +89,7 @@ const App: React.FC = () => {
     return Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
   }, [activeGame]);
 
-  const availableYears = useMemo(() => getYearsList(activeGame.startYear), [activeGame]);
+  const availableYears = useMemo(() => activeGame ? getYearsList(activeGame.startYear) : [], [activeGame]);
 
   // Custo Total dos Jogos Gerados
   const totalGenerationCost = useMemo(() => {
@@ -263,7 +273,9 @@ const App: React.FC = () => {
               pool = calculateHotNumbers(pastResults, newSize);
           } else {
               // Fallback aleatório
-              pool = Array.from({length: activeGame.totalNumbers}, (_, i) => i + 1)
+              const max = activeGame.id === 'lotomania' ? 99 : activeGame.totalNumbers;
+              const min = activeGame.id === 'lotomania' ? 0 : 1;
+              pool = Array.from({length: activeGame.totalNumbers}, (_, i) => i + min)
                   .sort(() => 0.5 - Math.random())
                   .slice(0, newSize);
           }
@@ -475,7 +487,7 @@ const App: React.FC = () => {
       try {
         let finalSelection: number[] = Array.from(selectedNumbers);
         let games: number[][] = [];
-        let allNumbersPool = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
+        let allNumbersPool = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + (activeGame.id === 'lotomania' ? 0 : 1));
         
         // --- CENÁRIO 1: GERAÇÃO AUTOMÁTICA (Sem seleção do usuário) ---
         if (finalSelection.length === 0) {
@@ -494,7 +506,7 @@ const App: React.FC = () => {
                  // Fallback Garantido se fetch falhar ou retornar vazio
                  if (finalSelection.length < poolSize) {
                     const remaining = poolSize - finalSelection.length;
-                    const randomFill = Array.from({length: activeGame.totalNumbers}, (_, i) => i + 1)
+                    const randomFill = allNumbersPool
                         .filter(n => !finalSelection.includes(n))
                         .sort(() => 0.5 - Math.random())
                         .slice(0, remaining);
@@ -505,8 +517,7 @@ const App: React.FC = () => {
                  setSelectedNumbers(new Set(finalSelection));
              } catch (e) {
                  console.error("Erro pool auto", e);
-                 const all = Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
-                 finalSelection = all.sort(() => 0.5 - Math.random()).slice(0, poolSize);
+                 finalSelection = allNumbersPool.sort(() => 0.5 - Math.random()).slice(0, poolSize);
                  setSelectedNumbers(new Set(finalSelection));
              }
         }
@@ -531,8 +542,9 @@ const App: React.FC = () => {
                      }
                  }
                  // Loop de Garantia (caso API falhe ou não preencha tudo)
+                 const max = activeGame.id === 'lotomania' ? 99 : activeGame.totalNumbers;
                  while(finalSelection.length < gameSize) {
-                     const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
+                     const rnd = Math.floor(Math.random() * max) + (activeGame.id === 'lotomania' ? 0 : 1);
                      if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
                  }
                  
@@ -540,8 +552,9 @@ const App: React.FC = () => {
                  setSelectedNumbers(new Set(finalSelection));
              } catch(e) {
                  // Fallback Totalmente Aleatório
+                 const max = activeGame.id === 'lotomania' ? 99 : activeGame.totalNumbers;
                  while(finalSelection.length < gameSize) {
-                     const rnd = Math.floor(Math.random() * activeGame.totalNumbers) + 1;
+                     const rnd = Math.floor(Math.random() * max) + (activeGame.id === 'lotomania' ? 0 : 1);
                      if(!finalSelection.includes(rnd)) finalSelection.push(rnd);
                  }
              }
@@ -1039,8 +1052,8 @@ const App: React.FC = () => {
                                 <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 rounded border border-blue-100">{p.bilhete}</span>
                             )}
                             <div className="text-right">
-                               <div className="font-bold text-slate-800">{p.ganhadores} ganhadores</div>
-                               <div className="text-[10px] text-green-600">R$ {p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
+                                <div className="font-bold text-slate-800">{p.ganhadores} ganhadores</div>
+                                <div className="text-[10px] text-green-600">R$ {p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
                             </div>
                         </div>
                     ))}
@@ -1071,10 +1084,12 @@ const App: React.FC = () => {
   };
 
   const getGridColsClass = () => {
-      if (activeGame.cols === 5) return 'grid-cols-5';
-      if (activeGame.cols === 7) return 'grid-cols-7'; 
-      if (activeGame.cols === 10) return 'grid-cols-5 sm:grid-cols-10';
-      return 'grid-cols-5';
+      // Retorna classes exatas correspondentes aos volantes reais
+      if (activeGame.id === 'lotofacil') return 'grid-cols-5';
+      if (activeGame.id === 'supersete') return 'grid-cols-7'; // 7 Colunas verticais
+      if (activeGame.id === 'diadesorte') return 'grid-cols-10'; // 10 Colunas
+      // Mega, Quina, Lotomania, Timemania, Dupla, Milionaria -> 10 Colunas
+      return 'grid-cols-10';
   };
 
   const selectionCount = selectedNumbers.size;
@@ -1216,7 +1231,9 @@ const App: React.FC = () => {
               ) : (
                 <div className="flex flex-wrap gap-1.5 justify-center sm:justify-start mb-4">
                     {latestResult.dezenas.map((n, idx) => (
-                    <span key={idx} className={`w-7 h-7 flex items-center justify-center bg-gradient-to-br from-${activeGame.color}-600/30 to-slate-800 border border-${activeGame.color}-500/40 rounded-full text-xs font-bold text-${activeGame.color}-100 shadow-sm`}>{n}</span>
+                    <span key={idx} className={`w-7 h-7 flex items-center justify-center bg-gradient-to-br from-${activeGame.color}-600/30 to-slate-800 border border-${activeGame.color}-500/40 rounded-full text-xs font-bold text-${activeGame.color}-100 shadow-sm`}>
+                        {activeGame.id === 'supersete' ? parseInt(n, 10) % 10 : n}
+                    </span>
                     ))}
                 </div>
               )}
@@ -1268,7 +1285,7 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* ... (Number grid and generation settings block - Keep as is) ... */}
+        {/* NUMBER GRID */}
         {activeGame.id !== 'federal' && (
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 sticky top-16 z-30 backdrop-blur-sm shadow-xl">
           <div className="flex justify-between items-center mb-2">
@@ -1348,20 +1365,46 @@ const App: React.FC = () => {
                 <p className="text-xs text-slate-400">Gere abaixo palpites aleatórios de bilhetes de 5 dígitos para procurar na lotérica.</p>
             </div>
         ) : (
-            <div className={`grid ${getGridColsClass()} gap-2 sm:gap-3 justify-items-center pb-4`}>
-            {allNumbers.map((num) => (
-                <NumberBall
-                key={num}
-                number={num}
-                isSelected={selectedNumbers.has(num)}
-                isRecentResult={resultNumbers.has(num)}
-                onClick={toggleNumber}
-                disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
-                colorTheme={activeGame.color}
-                size={activeGame.totalNumbers > 60 ? 'small' : 'medium'}
-                label={activeGame.id === 'supersete' ? (num % 10).toString() : undefined} 
-                />
-            ))}
+            // TICKET VISUAL CONTAINER (VOLANTE REAL)
+            <div className={`rounded-xl overflow-hidden shadow-2xl border-2 border-${activeGame.color}-600 bg-stone-50 relative`}>
+                {/* TICKET HEADER - Imita o topo do volante */}
+                <div className={`bg-${activeGame.color}-600 px-4 py-2 flex items-center justify-between shadow-md relative z-10`}>
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
+                            <span className={`text-${activeGame.color}-700 font-black text-xs tracking-tighter`}>{activeGame.name.substring(0, 2).toUpperCase()}</span>
+                        </div>
+                        <span className="font-bold text-white uppercase tracking-widest text-sm drop-shadow-md">{activeGame.name}</span>
+                    </div>
+                    <span className="text-[8px] text-white/80 font-bold uppercase tracking-widest border border-white/30 px-1 rounded">Volante</span>
+                </div>
+                
+                {/* GRID BACKGROUND - White/Paper for simulation */}
+                <div className="p-4 bg-stone-50">
+                    <div className={`grid ${getGridColsClass()} gap-1 sm:gap-2 justify-items-center ${activeGame.id === 'lotofacil' ? 'max-w-[280px] mx-auto' : ''}`}>
+                    
+                    {activeGame.id === 'supersete' && Array.from({length: 7}).map((_, i) => (
+                        <div key={`col-header-${i}`} className="flex flex-col items-center justify-end w-full pb-2 border-b border-lime-500/20 mb-1">
+                            <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-tight">Coluna</span>
+                            <span className="text-lg sm:text-xl font-bold text-lime-600 leading-none">{i + 1}</span>
+                        </div>
+                    ))}
+
+                    {allNumbers.map((num) => (
+                        <NumberBall
+                        key={num}
+                        number={num}
+                        isSelected={selectedNumbers.has(num)}
+                        isRecentResult={resultNumbers.has(num)}
+                        onClick={toggleNumber}
+                        disabled={status !== AppStatus.IDLE && status !== AppStatus.SUCCESS}
+                        colorTheme={activeGame.color}
+                        // Usa small para qualquer jogo com 10 ou mais colunas, ou Super Sete
+                        size={activeGame.cols >= 7 ? 'small' : 'medium'}
+                        label={activeGame.id === 'supersete' ? (num % 10).toString() : (activeGame.id === 'lotomania' ? num.toString().padStart(2, '0') : undefined)} 
+                        />
+                    ))}
+                    </div>
+                </div>
             </div>
         )}
 

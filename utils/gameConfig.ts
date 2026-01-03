@@ -9,11 +9,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 20, 
     defaultSelection: 15,
     cols: 5,
-    color: 'purple',
+    color: 'fuchsia', // Magenta oficial
     apiSlug: 'lotofacil',
     startYear: 2003,
     minPrize: 1700000,
-    howToPlay: "Marque entre 15 e 20 números, dentre os 25 disponíveis no volante. Fatura prêmio se acertar 11, 12, 13, 14 ou 15 números. É uma das loterias mais fáceis de ganhar.",
+    howToPlay: "Marque entre 15 e 20 números, dentre os 25 disponíveis no volante.",
     drawDays: "Segunda a Sábado, às 20h.",
     priceTable: [
       { quantity: 15, price: 3.00 },
@@ -32,11 +32,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 6,
     cols: 10,
-    color: 'emerald',
+    color: 'emerald', // Verde oficial
     apiSlug: 'megasena',
     startYear: 1996,
     minPrize: 3000000,
-    howToPlay: "A Mega-Sena paga milhões para o acertador dos 6 números sorteados. Ainda é possível ganhar prêmios ao acertar 4 ou 5 números dentre os 60 disponíveis no volante de apostas.",
+    howToPlay: "Escolha de 6 a 15 números dentre os 60 disponíveis.",
     drawDays: "Terças, Quintas e Sábados, às 20h.",
     priceTable: [
       { quantity: 6, price: 5.00 },
@@ -59,11 +59,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 5,
     cols: 10,
-    color: 'indigo', 
+    color: 'violet', // Roxo/Azul oficial
     apiSlug: 'quina',
     startYear: 1994,
     minPrize: 700000,
-    howToPlay: "Concorra a prêmios grandiosos com a Quina: basta marcar de 5 a 15 números dentre os 80 disponíveis no volante e torcer. Ganham prêmios os acertadores de 2, 3, 4 ou 5 números.",
+    howToPlay: "Marque de 5 a 15 números dentre os 80 disponíveis.",
     drawDays: "Segunda a Sábado, às 20h.",
     priceTable: [
       { quantity: 5, price: 2.50 },
@@ -87,11 +87,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 50, 
     defaultSelection: 50,
     cols: 10,
-    color: 'orange',
+    color: 'orange', // Laranja oficial
     apiSlug: 'lotomania',
     startYear: 1999,
     minPrize: 500000,
-    howToPlay: "Você escolhe 50 números e ganha se acertar 20, 19, 18, 17, 16, 15 ou nenhum número. O preço é único e a aposta espelho é muito comum.",
+    howToPlay: "Escolha 50 números entre os 100 disponíveis (00 a 99).",
     drawDays: "Segundas, Quartas e Sextas, às 20h.",
     priceTable: [
       { quantity: 50, price: 3.00 },
@@ -105,11 +105,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 10, 
     defaultSelection: 10,
     cols: 10,
-    color: 'yellow',
+    color: 'yellow', // Amarelo/Verde oficial
     apiSlug: 'timemania',
     startYear: 2008,
     minPrize: 100000,
-    howToPlay: "Escolha 10 números entre os 80 e um Time do Coração. São sorteados 7 números e um Time do Coração por concurso. Você ganha se tiver de 3 a 7 acertos, ou acertar o time.",
+    howToPlay: "Escolha 10 números entre os 80 e um Time do Coração.",
     drawDays: "Terças, Quintas e Sábados, às 20h.",
     priceTable: [
       { quantity: 10, price: 3.50 },
@@ -122,12 +122,12 @@ export const GAMES: Record<string, GameConfig> = {
     minSelection: 7,
     maxSelection: 15, 
     defaultSelection: 7,
-    cols: 7,
-    color: 'amber',
+    cols: 10, // Ajustado para 10 colunas para imitar melhor a grade 1-10
+    color: 'amber', // Marrom/Ocre oficial
     apiSlug: 'diadesorte',
     startYear: 2018,
     minPrize: 150000,
-    howToPlay: "O Dia de Sorte é a loteria onde você aposta seus números da sorte. Escolha de 7 a 15 números dentre os 31 disponíveis e mais 1 Mês de Sorte.",
+    howToPlay: "Escolha de 7 a 15 números dentre os 31 disponíveis e 1 Mês de Sorte.",
     drawDays: "Terças, Quintas e Sábados, às 20h.",
     priceTable: [
       { quantity: 7, price: 2.50 },
@@ -149,11 +149,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 6,
     cols: 10,
-    color: 'rose',
+    color: 'rose', // Vermelho/Bordô oficial
     apiSlug: 'duplasena',
     startYear: 2001,
     minPrize: 200000,
-    howToPlay: "Com apenas uma aposta você concorre a dois sorteios por concurso. Escolha de 6 a 15 números dentre os 50 disponíveis. Ganha acertando 3, 4, 5 ou 6 números no primeiro ou segundo sorteio.",
+    howToPlay: "Escolha de 6 a 15 números dentre os 50 disponíveis. Concorre a 2 sorteios.",
     drawDays: "Segundas, Quartas e Sextas, às 20h.",
     priceTable: [
       { quantity: 6, price: 2.50 },
@@ -176,11 +176,11 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 12, 
     defaultSelection: 6,
     cols: 10,
-    color: 'blue',
+    color: 'cyan', // Azul turquesa/Escuro oficial
     apiSlug: 'maismilionaria',
     startYear: 2022,
     minPrize: 10000000,
-    howToPlay: "A +Milionária oferece prêmio mínimo de R$ 10 milhões. Você escolhe números na Matriz 1 (1 a 50) e trevos na Matriz 2 (1 a 6). Neste sistema, focamos no fechamento da Matriz de Números (1-50).",
+    howToPlay: "Escolha números na Matriz 1 (1 a 50) e trevos na Matriz 2.",
     drawDays: "Quartas e Sábados, às 20h.",
     priceTable: [
       { quantity: 6, price: 6.00 },
@@ -199,12 +199,12 @@ export const GAMES: Record<string, GameConfig> = {
     minSelection: 7,
     maxSelection: 21, 
     defaultSelection: 7,
-    cols: 10,
-    color: 'lime',
+    cols: 7,
+    color: 'lime', // Verde claro oficial
     apiSlug: 'supersete',
     startYear: 2020,
     minPrize: 100000,
-    howToPlay: "O Super Sete é a loteria de colunas. São 7 colunas com números de 0 a 9. Escolha no mínimo 1 número por coluna (total 7) e no máximo 3 por coluna (total 21). Ganha acertando de 3 a 7 colunas.",
+    howToPlay: "Escolha números (0-9) em cada uma das 7 colunas.",
     drawDays: "Segundas, Quartas e Sextas, às 20h.",
     priceTable: [
       { quantity: 7, price: 2.50 },
@@ -228,7 +228,7 @@ export const GAMES: Record<string, GameConfig> = {
     apiSlug: 'federal',
     startYear: 2015, 
     minPrize: 500000,
-    howToPlay: "Na Federal você concorre com bilhetes contendo 5 dígitos (00000 a 99999). São sorteados 5 prêmios principais. Você ganha se acertar o bilhete sorteado em qualquer um dos 5 prêmios principais ou suas variações.",
+    howToPlay: "Concorre com bilhetes de 5 dígitos.",
     drawDays: "Quartas e Sábados, às 19h.",
     priceTable: [
        { quantity: 1, price: "Variável (Fração)" }
