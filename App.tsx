@@ -110,6 +110,29 @@ const App: React.FC = () => {
       }, 0);
   }, [generatedGames, activeGame]);
 
+  // CALCULAR VALOR TOTAL A RECEBER (PREMIAÇÃO)
+  const grandTotalPrize = useMemo(() => {
+      if (!latestResult || savedBatches.length === 0) return 0;
+      
+      let total = 0;
+      const resultSet = new Set(latestResult.dezenas.map(d => parseInt(d, 10)));
+
+      savedBatches.forEach(batch => {
+          // Só soma se for do mesmo tipo de jogo e mesmo concurso do resultado carregado
+          if (batch.gameType === activeGame.id && batch.targetConcurso === latestResult.concurso) {
+              batch.games.forEach(gameObj => {
+                  const hits = gameObj.numbers.filter(n => resultSet.has(n)).length;
+                  // Encontra a faixa de premiação correspondente aos acertos
+                  const prizeEntry = latestResult.premiacoes.find(p => p.faixa === hits);
+                  if (prizeEntry) {
+                      total += prizeEntry.valor;
+                  }
+              });
+          }
+      });
+      return total;
+  }, [latestResult, savedBatches, activeGame.id]);
+
   // --- EFFECTS ---
 
   useEffect(() => {
@@ -827,6 +850,58 @@ const App: React.FC = () => {
     // Fallback WhatsApp Web
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
+  };
+
+  // --- NATIVE SHARE FOR SAVED BATCH ---
+  const handleShareSavedBatch = async (e: React.MouseEvent, batch: SavedBetBatch) => {
+    e.stopPropagation();
+    vibrate(10);
+    
+    const gameConfig = GAMES[batch.gameType] || GAMES['lotofacil']; 
+    
+    let message = `📁 *LotoSmart AI - Jogos Salvos*\n`;
+    message += `🎮 ${gameConfig.name}\n`;
+    message += `📅 Concurso: ${batch.targetConcurso}\n\n`;
+
+    batch.games.slice(0, 50).forEach((g) => {
+        const line = gameConfig.id === 'federal'
+            ? g.numbers[0].toString()
+            : g.numbers.map(n => n.toString().padStart(2, '0')).join(' ');
+        message += `*${String(g.gameNumber).padStart(2, '0')}.* ${line}\n`;
+    });
+    
+    if (batch.games.length > 50) message += `\n...e mais ${batch.games.length - 50} jogos.`;
+    
+    // Adiciona premiação ao texto se disponível e compatível com a tela atual
+    if (latestResult && batch.gameType === activeGame.id && batch.targetConcurso === latestResult.concurso) {
+         let batchTotalPrize = 0;
+         const rs = new Set(latestResult.dezenas.map(d => parseInt(d, 10)));
+         batch.games.forEach(g => {
+            const h = g.numbers.filter(n => rs.has(n)).length;
+            const pe = latestResult.premiacoes.find(p => p.faixa === h);
+            if (pe) batchTotalPrize += pe.valor;
+         });
+         
+         if (batchTotalPrize > 0) {
+             message += `\n💰 *Premiação Total:* ${batchTotalPrize.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`;
+         }
+    }
+
+    message += `\n🍀 Boa sorte!`;
+
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: `LotoSmart - ${gameConfig.name}`,
+                text: message,
+            });
+        } catch (error) {
+            console.log('Share dismissed');
+        }
+    } else {
+        const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+    }
   };
 
   // --- NATIVE SHARE API FOR SINGLE GAME ---
@@ -1621,9 +1696,20 @@ const App: React.FC = () => {
                     <div className="w-12 h-1.5 bg-slate-600 rounded-full"></div>
                 </div>
 
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900">
-                   <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
-                   <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
+                <div className="p-4 border-b border-slate-700 bg-gradient-to-r from-slate-800 to-slate-900">
+                   <div className="flex justify-between items-center mb-1">
+                       <h3 className="text-lg font-bold text-white flex items-center gap-2">📁 Meus Jogos Salvos</h3>
+                       <button onClick={() => setShowSavedGamesModal(false)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center font-bold">✕</button>
+                   </div>
+                   {/* HEADER DE TOTALIZAÇÃO GERAL */}
+                   {grandTotalPrize > 0 && (
+                       <div className="mt-2 bg-gradient-to-r from-emerald-900/50 to-green-900/50 border border-emerald-500/40 rounded-lg p-2 flex justify-between items-center shadow-lg animate-bounce-in">
+                           <span className="text-xs text-emerald-200 font-bold uppercase tracking-wider pl-1">💰 Total a Receber</span>
+                           <span className="text-lg font-mono font-black text-white drop-shadow-md">
+                               {grandTotalPrize.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                           </span>
+                       </div>
+                   )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-[calc(20px+env(safe-area-inset-bottom))] cursor-auto" onPointerDownCapture={e => e.stopPropagation()}>
                   {savedBatches.length === 0 ? (
@@ -1647,6 +1733,17 @@ const App: React.FC = () => {
                         if (sizeCount === 16) sizeColorClass = "bg-blue-600 text-white";
                         if (sizeCount >= 17) sizeColorClass = "bg-purple-600 text-white";
                         if (sizeCount >= 19) sizeColorClass = "bg-amber-500 text-black";
+
+                        // CALCULAR TOTAL DO LOTE ESPECÍFICO
+                        let batchTotalPrize = 0;
+                        if (latestResult && batch.gameType === activeGame.id && batch.targetConcurso === latestResult.concurso) {
+                            const rs = new Set(latestResult.dezenas.map(d => parseInt(d, 10)));
+                            batch.games.forEach(g => {
+                                const h = g.numbers.filter(n => rs.has(n)).length;
+                                const pe = latestResult.premiacoes.find(p => p.faixa === h);
+                                if (pe) batchTotalPrize += pe.valor;
+                            });
+                        }
 
                         return (
                         <motion.div 
@@ -1673,15 +1770,37 @@ const App: React.FC = () => {
                                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 font-bold">Atual</span>
                                   )}
                                 </div>
-                               <div className="text-[10px] text-slate-500 mt-1">{batch.createdAt} • {batch.games.length} jogos</div>
+                               {/* EXIBIR TOTAL DO LOTE SE HOUVER */}
+                               {batchTotalPrize > 0 ? (
+                                   <div className="mt-1.5 flex items-center gap-1.5">
+                                       <span className="text-[10px] text-slate-400">Total do Lote:</span>
+                                       <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-900/30 px-1.5 rounded border border-emerald-500/30">
+                                           {batchTotalPrize.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                       </span>
+                                   </div>
+                               ) : (
+                                   <div className="text-[10px] text-slate-500 mt-1">{batch.createdAt} • {batch.games.length} jogos</div>
+                               )}
                             </div>
-                            <button 
-                              type="button"
-                              onClick={(e) => handleRequestDeleteBatch(e, batch.id)} 
-                              className={`${deleteConfirmBatchId === batch.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'} border border-red-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95`}
-                            >
-                              <span>🗑️</span> {deleteConfirmBatchId === batch.id ? 'Confirmar?' : 'Apagar'}
-                            </button>
+                            
+                            <div className="flex gap-2">
+                                <button 
+                                  type="button"
+                                  onClick={(e) => handleShareSavedBatch(e, batch)}
+                                  className="bg-green-600/10 hover:bg-green-600/20 text-green-400 border border-green-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95"
+                                  title="Compartilhar Lote"
+                                >
+                                  <span>📲</span>
+                                </button>
+
+                                <button 
+                                  type="button"
+                                  onClick={(e) => handleRequestDeleteBatch(e, batch.id)} 
+                                  className={`${deleteConfirmBatchId === batch.id ? 'bg-red-600 text-white animate-pulse' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'} border border-red-500/20 rounded-lg px-3 py-1.5 transition-all flex items-center gap-1 text-[10px] font-bold shadow-sm active:scale-95`}
+                                >
+                                  <span>🗑️</span> {deleteConfirmBatchId === batch.id ? 'Confirmar?' : 'Apagar'}
+                                </button>
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <AnimatePresence>
@@ -1689,6 +1808,7 @@ const App: React.FC = () => {
                               if (!gameObj || !gameObj.numbers) return null;
 
                               let hits = 0;
+                              let prizeValue = 0;
                               let statusLabel = <span className="text-slate-500 text-[9px]">--</span>;
                               let styleClass = "bg-black/20 border-transparent";
 
@@ -1696,6 +1816,11 @@ const App: React.FC = () => {
                               if (latestResult && batch.gameType === activeGame.id) {
                                   if (latestResult.concurso === batch.targetConcurso) {
                                       hits = calculateHits(gameObj.numbers);
+                                      
+                                      // BUSCA O VALOR DO PRÊMIO
+                                      const prizeEntry = latestResult.premiacoes.find(p => p.faixa === hits);
+                                      if (prizeEntry) prizeValue = prizeEntry.valor;
+
                                       if (hits > 0) statusLabel = <span className="text-slate-300 text-[10px] font-bold">{hits} pts</span>;
                                       
                                       // Highlight Wins
@@ -1705,7 +1830,16 @@ const App: React.FC = () => {
                                       
                                       if (hits >= minWin) {
                                           styleClass = "bg-emerald-900/20 border-emerald-500/40 shadow-emerald-500/10 shadow";
-                                          statusLabel = <span className="text-emerald-400 text-[10px] font-black flex items-center gap-1">🏆 {hits} PTS</span>;
+                                          statusLabel = (
+                                              <div className="flex flex-col items-end">
+                                                  <span className="text-emerald-400 text-[10px] font-black flex items-center gap-1">🏆 {hits} PTS</span>
+                                                  {prizeValue > 0 && (
+                                                      <span className="text-[10px] text-white font-mono bg-emerald-600 px-1.5 rounded shadow-sm mt-0.5">
+                                                          {prizeValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                      </span>
+                                                  )}
+                                              </div>
+                                          );
                                       }
                                   } else if (latestResult.concurso > batch.targetConcurso) {
                                       statusLabel = <span className="text-slate-600 text-[9px]">Passado</span>;
