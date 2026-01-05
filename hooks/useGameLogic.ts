@@ -94,6 +94,14 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     setGameSize(activeGame.minSelection); 
     setClosingMethod('smart_pattern'); 
   };
+  
+  // NOVO: Função para remover jogos específicos (para filtros)
+  const removeGames = (indicesToRemove: number[]) => {
+      const setIndices = new Set(indicesToRemove);
+      const newGames = generatedGames.filter((_, idx) => !setIndices.has(idx));
+      setGeneratedGames(newGames);
+      vibrate(20);
+  };
 
   const handleGameSizeChangeWithAutoSelect = (newSize: number, notify: (msg: string, type: 'info' | 'success') => void) => {
       vibrate(10);
@@ -324,6 +332,7 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     selectedNumbers,
     generatedGames,
     setGeneratedGames,
+    removeGames,
     status,
     setStatus,
     analysis,

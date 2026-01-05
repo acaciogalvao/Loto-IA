@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import LotteryTicket from './LotteryTicket';
 import { GameConfig, DetailedStats, AnalysisResult, LotteryResult } from '../types';
-import { calculateDetailedStats } from '../utils/lotteryLogic';
+import { calculateDetailedStats, calculateGameScore, hasLongSequence } from '../utils/lotteryLogic';
 
 interface GeneratedGamesListProps {
   games: number[][];
@@ -17,6 +17,7 @@ interface GeneratedGamesListProps {
   onSaveSingleGame: (e: React.MouseEvent, game: number[], idx: number) => void;
   onShareSingleGame: (e: React.MouseEvent, game: number[], idx: number) => void;
   copiedGameIndex: number | null;
+  onRemoveGames?: (indices: number[]) => void; // NOVO: Callback para remover jogos
 }
 
 const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
@@ -31,7 +32,8 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
   onCopyGame,
   onSaveSingleGame,
   onShareSingleGame,
-  copiedGameIndex
+  copiedGameIndex,
+  onRemoveGames
 }) => {
   const [expandedGameStats, setExpandedGameStats] = useState<number | null>(null);
 
@@ -43,6 +45,38 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
   const toggleGameStats = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
     setExpandedGameStats(prev => prev === index ? null : index);
+  };
+
+  // --- ACTIONS: EXPORT & FILTER ---
+  const handleExportTxt = () => {
+      const content = games.map((g, i) => `Jogo ${i+1}: ${g.map(n => String(n).padStart(2,'0')).join(' ')}`).join('\n');
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `lotosmart_${activeGame.apiSlug}_${new Date().toISOString().slice(0,10)}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleFilterBadGames = () => {
+      if (!onRemoveGames) return;
+      const indicesToRemove: number[] = [];
+      games.forEach((game, idx) => {
+          const score = calculateGameScore(game, activeGame);
+          const hasSeq = activeGame.id === 'lotofacil' ? hasLongSequence(game, 4) : hasLongSequence(game, 2);
+          
+          // Regra: Remove se Score < 50 OU tem sequência muito longa
+          if (score < 50 || hasSeq) {
+              indicesToRemove.push(idx);
+          }
+      });
+      if (indicesToRemove.length > 0) {
+          onRemoveGames(indicesToRemove);
+      } else {
+          alert("Nenhum jogo 'ruim' encontrado com os critérios atuais.");
+      }
   };
 
   if (games.length === 0) return null;
@@ -63,6 +97,23 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
                     </div>
                 )}
             </div>
+            
+            {/* TOOLBAR: ACTIONS & FILTERS */}
+            {activeGame.id !== 'federal' && (
+                <div className="bg-slate-800/50 p-2 rounded-lg border border-slate-700/50 flex flex-wrap gap-2 items-center justify-between">
+                     <span className="text-[9px] text-slate-500 font-bold uppercase pl-1">Ferramentas</span>
+                     <div className="flex gap-2">
+                         <button onClick={handleExportTxt} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-[10px] font-bold border border-slate-600 flex items-center gap-1 transition-colors">
+                             ⬇️ TXT
+                         </button>
+                         {onRemoveGames && (
+                             <button onClick={handleFilterBadGames} className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded text-[10px] font-bold border border-red-800/50 flex items-center gap-1 transition-colors" title="Remove jogos com Score baixo ou sequências longas">
+                                 🧹 Otimizar Lista
+                             </button>
+                         )}
+                     </div>
+                </div>
+            )}
             
             <div className="flex w-full gap-2">
                 <button onClick={onSaveBatch} className="flex-1 px-4 py-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-bold rounded-lg transition-colors active:scale-95 shadow-[0_0_10px_rgba(37,99,235,0.2)]">Salvar Todos</button>

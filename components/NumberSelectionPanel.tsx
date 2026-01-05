@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import NumberBall from './NumberBall';
 import { GameConfig, AppStatus } from '../types';
-import { getStats, calculateDetailedStats } from '../utils/lotteryLogic';
+import { calculateDetailedStats, calculateGameScore, getBalanceStatus } from '../utils/lotteryLogic';
 
 interface NumberSelectionPanelProps {
   activeGame: GameConfig;
@@ -54,11 +54,12 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
   const selectionCount = selectedNumbers.size;
 
   // Real-time Stats Calculation
-  const realTimeStats = useMemo(() => {
-      if (selectionCount === 0) return null;
+  const { realTimeStats, optimizationScore } = useMemo(() => {
+      if (selectionCount === 0) return { realTimeStats: null, optimizationScore: 0 };
       const nums = (Array.from(selectedNumbers) as number[]).sort((a,b) => a-b);
-      // We use calculateDetailedStats (reusing existing logic) but pass undefined for previousGame
-      return calculateDetailedStats(nums, undefined, activeGame);
+      const stats = calculateDetailedStats(nums, undefined, activeGame);
+      const score = calculateGameScore(nums, activeGame);
+      return { realTimeStats: stats, optimizationScore: score };
   }, [selectedNumbers, activeGame, selectionCount]);
 
   const methods = [
@@ -67,6 +68,13 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
       { id: 'guaranteed', label: 'Matemático' },
       { id: 'free_mode', label: 'Modo Livre' }
   ];
+
+  // Helper de Cor para Stats
+  const getStatusColor = (status: 'ideal' | 'warn' | 'bad') => {
+      if (status === 'ideal') return 'text-emerald-400';
+      if (status === 'warn') return 'text-yellow-400';
+      return 'text-red-400';
+  };
 
   return (
     <div className="space-y-4">
@@ -140,18 +148,35 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
           </div>
       </div>
 
-      {/* Real-time Stats Dashboard */}
-      {realTimeStats && (
-        <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-[10px] font-mono animate-fade-in backdrop-blur-sm">
-            <div className="flex items-center gap-2">
-                <span className="text-slate-400">Pares: <strong className="text-white">{realTimeStats.pares}</strong></span>
-                <span className="w-px h-3 bg-slate-700"></span>
-                <span className="text-slate-400">Ímpares: <strong className="text-white">{realTimeStats.impares}</strong></span>
+      {/* Real-time Stats Dashboard (Medidor de Qualidade) */}
+      {realTimeStats && selectionCount > activeGame.minSelection / 2 && (
+        <div className="bg-slate-900/80 border border-slate-700 rounded-lg p-3 animate-fade-in backdrop-blur-sm shadow-md">
+            
+            {/* IO: Índice de Otimização */}
+            <div className="mb-2">
+                <div className="flex justify-between items-end mb-1">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Qualidade da Seleção (IO)</span>
+                    <span className={`text-xs font-black ${optimizationScore > 75 ? 'text-emerald-400' : (optimizationScore > 50 ? 'text-yellow-400' : 'text-red-400')}`}>
+                        {optimizationScore}/100
+                    </span>
+                </div>
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div 
+                        className={`h-full transition-all duration-500 ${optimizationScore > 75 ? 'bg-emerald-500' : (optimizationScore > 50 ? 'bg-yellow-500' : 'bg-red-500')}`} 
+                        style={{ width: `${optimizationScore}%` }}
+                    ></div>
+                </div>
             </div>
-            <div className="flex items-center gap-2">
-                <span className="text-slate-400">Primos: <strong className="text-purple-300">{realTimeStats.primos}</strong></span>
-                <span className="w-px h-3 bg-slate-700"></span>
-                <span className="text-slate-400">Soma: <strong className={realTimeStats.soma > 220 ? 'text-red-400' : 'text-emerald-400'}>{realTimeStats.soma}</strong></span>
+
+            <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-800">
+                <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Pares: <strong className={getStatusColor(getBalanceStatus(realTimeStats.pares, Math.floor(selectionCount/2)-1, Math.ceil(selectionCount/2)+1))}>{realTimeStats.pares}</strong></span>
+                    <span className="w-px h-2 bg-slate-700"></span>
+                    <span className="text-slate-500">Ímpares: <strong className={getStatusColor(getBalanceStatus(realTimeStats.impares, Math.floor(selectionCount/2)-1, Math.ceil(selectionCount/2)+1))}>{realTimeStats.impares}</strong></span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-slate-500">Soma: <strong className={activeGame.id === 'lotofacil' ? getStatusColor(getBalanceStatus(realTimeStats.soma, 180, 220)) : 'text-slate-200'}>{realTimeStats.soma}</strong></span>
+                </div>
             </div>
         </div>
       )}

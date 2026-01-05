@@ -26,7 +26,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [showInfoModal, setShowInfoModal] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-900 pb-[calc(90px+env(safe-area-inset-bottom))] font-sans text-slate-100">
+    <div className="min-h-screen bg-slate-900 pb-[calc(90px+env(safe-area-inset-bottom))] font-sans text-slate-100 relative transition-colors duration-1000">
+      
+      {/* THEME BACKGROUND INJECTION */}
+      <div 
+        className="fixed inset-0 pointer-events-none opacity-20 transition-opacity duration-1000 ease-in-out"
+        style={{
+            background: `radial-gradient(circle at 50% 10%, ${activeGame.theme.primary} 0%, transparent 70%)`
+        }}
+      />
       
       {/* GLOBAL UI ELEMENTS */}
       <SidebarMenu 
@@ -52,7 +60,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       />
 
       {/* MAIN CONTENT INJECTION */}
-      <main className="max-w-lg mx-auto p-4 space-y-5">
+      <main className="max-w-lg mx-auto p-4 space-y-5 relative z-10">
         {children}
       </main>
 

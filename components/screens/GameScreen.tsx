@@ -144,6 +144,7 @@ const GameScreen: React.FC = () => {
           onSaveSingleGame={(e, game, idx) => { e.stopPropagation(); handleSaveSingleGame(game, idx, latestResult?.proximoConcurso || 0, notify); }}
           onShareSingleGame={handleShareSingleGame}
           copiedGameIndex={null}
+          onRemoveGames={gameLogic.removeGames}
         />
       </div>
 

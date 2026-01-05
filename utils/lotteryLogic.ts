@@ -83,7 +83,7 @@ export const calculatePrizeForHits = (hits: number, result: LotteryResult | Past
 };
 
 // Helper para sequências
-const hasLongSequence = (numbers: number[], maxAllowed: number = 2): boolean => {
+export const hasLongSequence = (numbers: number[], maxAllowed: number = 2): boolean => {
     let sorted = [...numbers].sort((a, b) => a - b);
     let currentSeq = 1;
     for (let i = 1; i < sorted.length; i++) {
@@ -534,39 +534,62 @@ export const calculateDetailedStats = (numbers: number[], previousNumbers: numbe
   };
 };
 
+// HELPER: Validação visual de status ideal
+export const getBalanceStatus = (val: number, min: number, max: number): 'ideal' | 'warn' | 'bad' => {
+    if (val >= min && val <= max) return 'ideal';
+    if (val >= min - 1 && val <= max + 1) return 'warn';
+    return 'bad';
+};
+
+// IO: Índice de Otimização (Score 0-100)
 export const calculateGameScore = (game: number[], gameConfig: GameConfig, previousNumbers?: number[]): number => {
     let score = 100; 
     const stats = calculateDetailedStats(game, previousNumbers, gameConfig);
 
+    // Regras Genéricas de Sequência
     if (gameConfig.id !== 'lotofacil' && gameConfig.id !== 'lotomania') {
-        if (hasLongSequence(game, 2)) score -= 30; 
+        if (hasLongSequence(game, 2)) score -= 25; 
         if (hasLongSequence(game, 3)) score -= 50; 
+    } else if (gameConfig.id === 'lotofacil') {
+        if (hasLongSequence(game, 5)) score -= 30; // Sequências > 5 são raras na lotofácil (mas acontecem)
     }
 
     if (gameConfig.id === 'lotofacil') {
-        if (stats.impares < 6 || stats.impares > 9) score -= 40; 
-        else if (stats.impares === 7 || stats.impares === 8) { score += 5; } 
-        else score -= 5;
+        // Ímpares: Ideal 7-9
+        if (stats.impares < 6 || stats.impares > 9) score -= 30; 
+        else if (stats.impares === 7 || stats.impares === 9) { score -= 5; } // 8 é o rei
+        else { score += 5; }
 
-        if (stats.soma < 180 || stats.soma > 220) score -= 40;
-        else if (stats.soma >= 190 && stats.soma <= 210) score += 10; 
+        // Soma: Ideal 180-220
+        if (stats.soma < 180 || stats.soma > 220) score -= 30;
+        else if (stats.soma >= 195 && stats.soma <= 205) score += 5; 
 
+        // Repetidos (se disponível): Ideal 8-10
         if (typeof stats.repetidos === 'number') {
-            if (stats.repetidos === 9) score += 20; 
-            else if (stats.repetidos === 8 || stats.repetidos === 10) score += 10; 
-            else if (stats.repetidos < 7 || stats.repetidos > 11) score -= 50; 
+            if (stats.repetidos === 9) score += 10; 
+            else if (stats.repetidos === 8 || stats.repetidos === 10) score += 5; 
+            else if (stats.repetidos < 7 || stats.repetidos > 11) score -= 40; 
         }
+
+        // Primos: Ideal 4-6
         if (stats.primos < 4 || stats.primos > 6) score -= 20;
-        if (stats.moldura < 8 || stats.moldura > 12) score -= 10;
+
+        // Moldura: Ideal 9-11
+        if (stats.moldura < 8 || stats.moldura > 12) score -= 20;
 
     } else if (gameConfig.id === 'megasena') {
+        // Pares: Ideal 2-4
         if (stats.pares < 2 || stats.pares > 4) score -= 20;
-        if (stats.soma < 120 || stats.soma > 250) score -= 30;
+        
+        // Soma: Ideal 120-250 (Filtro amplo da Gaussiana)
+        if (stats.soma < 120 || stats.soma > 250) score -= 25;
+        
+        // Quadrantes
         const quads = getQuadrantDistribution(game, 60);
-        if (quads.some(q => q > 3)) score -= 30; 
-        if (quads.filter(q => q === 0).length >= 2) score -= 20; 
+        if (quads.some(q => q > 3)) score -= 20; // Concentração ruim
+        if (quads.filter(q => q === 0).length >= 2) score -= 15; // Buracos no volante
     } else if (gameConfig.id === 'quina') {
-        if (stats.soma < 100 || stats.soma > 300) score -= 30;
+        if (stats.soma < 100 || stats.soma > 300) score -= 25;
         if (hasLongSequence(game, 1)) score -= 15; 
     }
 
