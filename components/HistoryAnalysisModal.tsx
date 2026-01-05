@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { motion, PanInfo } from 'framer-motion';
 import { PastGameResult, GameConfig } from '../types';
@@ -72,12 +73,15 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
             <div className="w-12 h-1.5 bg-slate-700 rounded-full"></div>
         </div>
 
-        <div className={`p-4 bg-gradient-to-r from-${activeGame.color}-900 to-slate-900 border-b border-${activeGame.color}-500/20 flex justify-between items-center`}>
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+        <div 
+            className="p-4 flex justify-between items-center border-b border-white/10"
+            style={{ backgroundColor: activeGame.theme.primary, color: activeGame.theme.text }}
+        >
+            <h3 className="text-lg font-bold flex items-center gap-2">
               <span>🔍</span> 
               Raio-X Histórico
             </h3>
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center border border-slate-700 font-bold active:scale-95">✕</button>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center border border-white/20 font-bold active:scale-95">✕</button>
         </div>
 
         <div className="p-4 bg-slate-800/50 border-b border-slate-700 flex flex-col gap-3">
@@ -179,12 +183,13 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                     const winners = targetPrize ? targetPrize.ganhadores : 0;
                     const value = targetPrize ? targetPrize.valor : 0;
                     const locations = targetPrize ? targetPrize.locais : [];
+                    const totalPot = value * winners;
 
                     return (
                         <div key={game.concurso} className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-md group hover:border-slate-500 transition-colors">
                             <div className="flex justify-between items-center p-3 border-b border-slate-700/50 bg-black/20">
                                 <div>
-                                    <span className={`text-sm font-bold text-${activeGame.color}-400`}>Concurso {game.concurso}</span>
+                                    <span className="text-sm font-bold" style={{ color: activeGame.theme.primary }}>Concurso {game.concurso}</span>
                                     <span className="text-[10px] text-slate-500 ml-2">{game.data}</span>
                                 </div>
                                 
@@ -199,7 +204,11 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                             <div className="p-3">
                                 <div className="flex flex-wrap gap-1 mb-2">
                                     {game.dezenas.map(d => (
-                                        <span key={d} className="w-6 h-6 rounded-full bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center border border-slate-600">
+                                        <span 
+                                            key={d} 
+                                            className="w-6 h-6 rounded-full text-white text-[10px] font-bold flex items-center justify-center border border-white/20"
+                                            style={{ backgroundColor: activeGame.theme.primary }}
+                                        >
                                             {d}
                                         </span>
                                     ))}
@@ -208,10 +217,21 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                                 {value > 0 && (
                                     <div className="mt-3 pt-3 border-t border-slate-700/50">
                                         <div className="flex justify-between items-center gap-2 mb-3">
-                                            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Prêmio por aposta</span>
-                                            <span className="text-sm font-mono font-bold text-emerald-300 bg-emerald-900/30 px-2 py-0.5 rounded">
-                                                {value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Prêmio por aposta</span>
+                                                <span className="text-sm font-mono font-bold text-emerald-300 bg-emerald-900/30 px-2 py-0.5 rounded border border-emerald-500/30 inline-block w-fit">
+                                                    {value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                </span>
+                                            </div>
+                                            
+                                            {winners > 1 && (
+                                                <div className="flex flex-col items-end opacity-60">
+                                                    <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Total Distribuído</span>
+                                                    <span className="text-[10px] font-mono text-slate-400">
+                                                        {totalPot.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                         
                                         {locations && locations.length > 0 ? (

@@ -1,3 +1,4 @@
+
 import { GameConfig } from "../types";
 
 export const GAMES: Record<string, GameConfig> = {
@@ -9,7 +10,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 20, 
     defaultSelection: 15,
     cols: 5,
-    color: 'fuchsia', // Magenta oficial
+    color: 'fuchsia', 
+    theme: {
+        primary: '#930089', // Roxo Oficial
+        secondary: '#6b0064',
+        text: '#ffffff',
+        background: '#fdf4ff',
+        accent: '#d946ef'
+    },
     apiSlug: 'lotofacil',
     startYear: 2003,
     minPrize: 1700000,
@@ -32,7 +40,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 6,
     cols: 10,
-    color: 'emerald', // Verde oficial
+    color: 'emerald',
+    theme: {
+        primary: '#209869', // Verde Oficial
+        secondary: '#135c3f',
+        text: '#ffffff',
+        background: '#ecfdf5',
+        accent: '#34d399'
+    },
     apiSlug: 'megasena',
     startYear: 1996,
     minPrize: 3000000,
@@ -59,7 +74,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 5,
     cols: 10,
-    color: 'violet', // Roxo/Azul oficial
+    color: 'violet',
+    theme: {
+        primary: '#260085', // Azul/Roxo Profundo Oficial
+        secondary: '#1a005e',
+        text: '#ffffff',
+        background: '#eff6ff',
+        accent: '#60a5fa'
+    },
     apiSlug: 'quina',
     startYear: 1994,
     minPrize: 700000,
@@ -87,7 +109,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 50, 
     defaultSelection: 50,
     cols: 10,
-    color: 'orange', // Laranja oficial
+    color: 'orange',
+    theme: {
+        primary: '#F78100', // Laranja Oficial
+        secondary: '#c26500',
+        text: '#ffffff',
+        background: '#fff7ed',
+        accent: '#fb923c'
+    },
     apiSlug: 'lotomania',
     startYear: 1999,
     minPrize: 500000,
@@ -105,7 +134,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 10, 
     defaultSelection: 10,
     cols: 10,
-    color: 'yellow', // Amarelo/Verde oficial
+    color: 'yellow',
+    theme: {
+        primary: '#00ff48', // Verde Neon Oficial (Estilo Logomarca)
+        secondary: '#038c2a',
+        text: '#064e1a', // Texto escuro para contraste
+        background: '#f0fdf4',
+        accent: '#facc15' // Detalhes em amarelo
+    },
     apiSlug: 'timemania',
     startYear: 2008,
     minPrize: 100000,
@@ -122,8 +158,15 @@ export const GAMES: Record<string, GameConfig> = {
     minSelection: 7,
     maxSelection: 15, 
     defaultSelection: 7,
-    cols: 10, // Ajustado para 10 colunas para imitar melhor a grade 1-10
-    color: 'amber', // Marrom/Ocre oficial
+    cols: 10,
+    color: 'amber',
+    theme: {
+        primary: '#CB852B', // Ocre/Marrom Oficial
+        secondary: '#8a5a1b',
+        text: '#ffffff',
+        background: '#fffbeb',
+        accent: '#f59e0b'
+    },
     apiSlug: 'diadesorte',
     startYear: 2018,
     minPrize: 150000,
@@ -149,7 +192,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 15, 
     defaultSelection: 6,
     cols: 10,
-    color: 'rose', // Vermelho/Bordô oficial
+    color: 'rose',
+    theme: {
+        primary: '#A61324', // Vermelho/Bordô Oficial
+        secondary: '#750b18',
+        text: '#ffffff',
+        background: '#fff1f2',
+        accent: '#f43f5e'
+    },
     apiSlug: 'duplasena',
     startYear: 2001,
     minPrize: 200000,
@@ -176,7 +226,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 12, 
     defaultSelection: 6,
     cols: 10,
-    color: 'cyan', // Azul turquesa/Escuro oficial
+    color: 'cyan',
+    theme: {
+        primary: '#0d9488', // Teal 600 - Melhor contraste no cabeçalho e cartões
+        secondary: '#0f172a', // Slate 900 - Fundo escuro característico
+        text: '#ffffff', 
+        background: '#f0fdfa', 
+        accent: '#2dd4bf' // Teal 400
+    },
     apiSlug: 'maismilionaria',
     startYear: 2022,
     minPrize: 10000000,
@@ -200,7 +257,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 21, 
     defaultSelection: 7,
     cols: 7,
-    color: 'lime', // Verde claro oficial
+    color: 'lime',
+    theme: {
+        primary: '#A1C615', // Verde Lima Oficial
+        secondary: '#74910d',
+        text: '#1a2e05', // Texto escuro para contraste
+        background: '#f7fee7',
+        accent: '#84cc16'
+    },
     apiSlug: 'supersete',
     startYear: 2020,
     minPrize: 100000,
@@ -224,7 +288,14 @@ export const GAMES: Record<string, GameConfig> = {
     maxSelection: 1,
     defaultSelection: 1,
     cols: 1,
-    color: 'blue', 
+    color: 'blue',
+    theme: {
+        primary: '#0066B0', // Azul Oficial
+        secondary: '#00477a',
+        text: '#ffffff',
+        background: '#eff6ff',
+        accent: '#3b82f6'
+    },
     apiSlug: 'federal',
     startYear: 2015, 
     minPrize: 500000,

@@ -11,6 +11,14 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
+export interface GameTheme {
+  primary: string;       // Cor principal (ex: Verde Mega-Sena #209869)
+  secondary: string;     // Cor secundária para gradientes ou contrastes
+  text: string;          // Cor de texto sobre a cor primária (geralmente white)
+  background: string;    // Cor de fundo leve
+  accent: string;        // Cor de destaque
+}
+
 export interface GameConfig {
   id: string; // 'lotofacil', 'megasena', etc.
   name: string; // 'Lotofácil', 'Mega-Sena'
@@ -19,7 +27,8 @@ export interface GameConfig {
   maxSelection: number; // 20, 15...
   defaultSelection: number; // Quantidade padrão para um jogo simples
   cols: number; // Colunas no grid (5 para lotofacil, 10 para lotomania)
-  color: string; // Cor do tema ('purple', 'green', 'blue')
+  color: string; // Mantido para compatibilidade legacy (removível no futuro)
+  theme: GameTheme; // NOVO: Cores reais
   apiSlug: string; // Slug para a API ('lotofacil', 'megasena')
   startYear: number; // Ano de início da loteria
   minPrize: number; // Valor mínimo do prêmio para fallback
@@ -85,6 +94,8 @@ export interface PastGameResult {
   dezenas: string[];
   data: string;        
   premiacoes: PrizeEntry[]; // Alterado para incluir todas as faixas
+  valorAcumulado?: number; // Adicionado para cálculos de simulação
+  valorEstimadoProximoConcurso?: number; // Adicionado para fallback
 }
 
 export interface HistoryCheckResult {

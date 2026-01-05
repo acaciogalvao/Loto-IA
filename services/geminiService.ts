@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, TrendResult, HistoricalAnalysis } from '../types';
 
@@ -34,12 +35,13 @@ export const getAiSuggestions = async (gameName: string = 'lotofacil', selection
     return [];
   } catch (error) {
     console.error("Gemini Suggestion Error:", error);
-    throw error;
+    // Return empty to respect "zeroed logic" instead of mock fallback
+    return []; 
   }
 };
 
 /**
- * NEW: Generates numbers based on TOTAL HISTORY
+ * Generates numbers based on TOTAL HISTORY
  */
 export const getHistoricalBestNumbers = async (gameName: string = 'lotofacil', selectionSize: number = 15): Promise<number[]> => {
   try {
@@ -79,7 +81,7 @@ export const getHistoricalBestNumbers = async (gameName: string = 'lotofacil', s
     return [];
   } catch (error) {
     console.error("Gemini Historical Error:", error);
-    throw error;
+    return [];
   }
 };
 
@@ -127,15 +129,16 @@ export const generateSmartClosing = async (gameName: string, selectedNumbers: nu
     return games;
   } catch (error) {
     console.error("Gemini Smart Closing Error:", error);
-    throw error;
+    return [];
   }
 };
 
 export const analyzeClosing = async (selectedNumbers: number[], totalGames: number): Promise<AnalysisResult> => {
+    // Logic zeroed out as requested - implement real AI call if needed
     return {
-      message: "Análise concluída (Genérico).",
-      score: 75,
-      tips: "Jogo equilibrado."
+      message: "Análise indisponível no momento.",
+      score: 0,
+      tips: ""
     };
 };
 
@@ -143,7 +146,7 @@ export const getLotteryTrends = async (gameName: string): Promise<TrendResult> =
     return {
         hot: [],
         cold: [],
-        analysis: "Análise de tendências simulada."
+        analysis: "Dados insuficientes para análise."
     };
 };
 
@@ -154,7 +157,7 @@ export const getHistoricalSimulation = async (gameName: string, game: number[]):
         wins13: 0,
         wins12: 0,
         wins11: 0,
-        probabilityText: "Simulação pendente.",
-        profitabilityIndex: 50
+        probabilityText: "Histórico não disponível.",
+        profitabilityIndex: 0
     };
 };

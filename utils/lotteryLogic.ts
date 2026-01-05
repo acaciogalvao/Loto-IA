@@ -1,77 +1,484 @@
-import { PastGameResult, DetailedStats, GameConfig } from "../types";
 
-export const generateCombinations = (sourceNumbers: number[], combinationSize: number): number[][] => {
+import { PastGameResult, DetailedStats, GameConfig, LotteryResult } from "../types";
+
+// --- CONSTANTES ESTATÍSTICAS ---
+const PRIMES = new Set([
+  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97
+]);
+
+const FIBONACCI = new Set([0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]);
+
+const TRIANGULARES = new Set([0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91]);
+
+const MOLDURA_CACHE: Record<string, Set<number>> = {};
+
+// Helper para converter resultado da API em Set de números para conferência
+export const getResultNumbersAsSet = (result: { dezenas: string[] } | null | undefined, gameId: string): Set<number> => {
+    const set = new Set<number>();
+    if (!result || !result.dezenas) return set;
+    
+    if (gameId === 'supersete') {
+        result.dezenas.forEach((d, colIdx) => {
+            const val = parseInt(d, 10);
+            if (!isNaN(val)) {
+                // Encoding: ColIndex * 10 + Value
+                set.add(colIdx * 10 + val);
+            }
+        });
+    } else {
+        result.dezenas.forEach(d => {
+             const val = parseInt(d, 10);
+             if(!isNaN(val)) set.add(val);
+        });
+    }
+    return set;
+};
+
+// Verifica se uma faixa de premiação é de valor FIXO (não divide por ganhadores)
+export const isFixedPrize = (gameId: string, hits: number): boolean => {
+    switch(gameId) {
+        case 'lotofacil': 
+            // 11, 12, 13 são fixos. 14 e 15 são rateio.
+            return [11, 12, 13].includes(hits);
+        case 'timemania': 
+            // 3, 4, 5 são fixos. 6, 7 são rateio.
+            return [3, 4, 5].includes(hits);
+        case 'diadesorte': 
+            // 4, 5 são fixos. 6, 7 são rateio.
+            return [4, 5].includes(hits);
+        case 'supersete': 
+            // 3, 4, 5 são fixos. 6, 7 são rateio.
+            return [3, 4, 5].includes(hits);
+        case 'federal':
+            return true; 
+        default: 
+            return false;
+    }
+};
+
+// Helper Centralizado de Cálculo de Prêmios (Valor Individual Real)
+export const calculatePrizeForHits = (hits: number, result: LotteryResult | PastGameResult, gameId: string): number => {
+    const pEntry = result.premiacoes.find(p => p.faixa === hits);
+    
+    // Se encontrou a faixa na lista de premiações
+    if (pEntry) {
+        // CASO 1: Existem ganhadores (ou a API reporta valor na faixa)
+        if (pEntry.ganhadores > 0 || pEntry.valor > 0) {
+            // CORREÇÃO SOLICITADA: O valor retornado pela API já é considerado o prêmio individual (ou o usuário deseja visualizar o pote total como prêmio)
+            // Não realizamos mais a divisão (val / pEntry.ganhadores).
+            return Number(pEntry.valor) || 0;
+        }
+
+        // CASO 2: ACUMULOU (0 Ganhadores Oficiais e valor zerado na faixa de rateio)
+        // O simulador assume que se o usuário jogou e acertou, ele ganharia o prêmio acumulado.
+        if (pEntry.ganhadores === 0) {
+            // Verifica se é a faixa principal do jogo para pegar o valor acumulado
+            const isMaxTier = (gameId === 'lotofacil' && hits === 15) ||
+                              (gameId === 'megasena' && hits === 6) ||
+                              (gameId === 'quina' && hits === 5) ||
+                              (gameId === 'lotomania' && hits === 20) ||
+                              (gameId === 'duplasena' && hits === 6) ||
+                              (gameId === 'supersete' && hits === 7);
+
+            if (isMaxTier && result.valorAcumulado && result.valorAcumulado > 0) {
+                return result.valorAcumulado;
+            }
+        }
+    }
+
+    return 0;
+};
+
+// Helper para sequências
+const hasLongSequence = (numbers: number[], maxAllowed: number = 2): boolean => {
+    let sorted = [...numbers].sort((a, b) => a - b);
+    let currentSeq = 1;
+    for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === sorted[i-1] + 1) {
+            currentSeq++;
+            if (currentSeq > maxAllowed) return true;
+        } else {
+            currentSeq = 1;
+        }
+    }
+    return false;
+};
+
+// Helper para similaridade (interseção)
+const calculateIntersection = (arr1: number[], arr2: number[]): number => {
+    const s2 = new Set(arr2);
+    return arr1.filter(x => s2.has(x)).length;
+};
+
+// Helper para quadrantes (Mega-Sena/Quina)
+const getQuadrantDistribution = (numbers: number[], totalNumbers: number): number[] => {
+    const midCol = 5;
+    const midRow = Math.floor((totalNumbers / 10) / 2);
+    
+    const q = [0, 0, 0, 0];
+    numbers.forEach(n => {
+        const val = n - 1; // 0-indexed
+        const row = Math.floor(val / 10);
+        const col = val % 10;
+        
+        if (row < midRow && col < midCol) q[0]++;
+        else if (row < midRow && col >= midCol) q[1]++;
+        else if (row >= midRow && col < midCol) q[2]++;
+        else q[3]++;
+    });
+    return q;
+};
+
+// Helper simples para fatorial/combinação aproximada
+function combinationsCount(n: number, k: number): number {
+    if (k < 0 || k > n) return 0;
+    if (k === 0 || k === n) return 1;
+    if (k > n / 2) k = n - k;
+    let res = 1;
+    for (let i = 1; i <= k; i++) {
+        res = res * (n - i + 1) / i;
+        if (res > 10000000) return 10000000; // Cap
+    }
+    return res;
+}
+
+export const generateCombinations = (sourceNumbers: number[], combinationSize: number, maxLimit: number = 200000): number[][] => {
   const result: number[][] = [];
   const sortedSource = [...sourceNumbers].sort((a, b) => a - b);
-  const MAX_COMBINATIONS = 500000;
+  const n = sortedSource.length;
+
+  if (combinationSize > n) return [];
+  if (combinationSize === n) return [[...sortedSource]];
   
-  function combine(start: number, currentCombo: number[]) {
-    if (result.length >= MAX_COMBINATIONS) return;
-
-    if (currentCombo.length === combinationSize) {
-      result.push([...currentCombo]);
-      return;
-    }
-
-    for (let i = start; i < sortedSource.length; i++) {
-      currentCombo.push(sortedSource[i]);
-      combine(i + 1, currentCombo);
-      currentCombo.pop();
-    }
+  const indices = Array.from({ length: combinationSize }, (_, i) => i);
+  
+  while (result.length < maxLimit) {
+      result.push(indices.map(i => sortedSource[i]));
+      
+      let i = combinationSize - 1;
+      while (i >= 0 && indices[i] === i + n - combinationSize) {
+          i--;
+      }
+      
+      if (i < 0) break;
+      
+      indices[i]++;
+      for (let j = i + 1; j < combinationSize; j++) {
+          indices[j] = indices[j - 1] + 1;
+      }
   }
 
-  combine(0, []);
   return result;
 };
 
-export const generateBalancedMatrix = (sourceNumbers: number[], totalGames: number, gameSize: number): number[][] => {
-  if (sourceNumbers.length < gameSize) return [];
-  
-  const sortedSource = [...sourceNumbers].sort((a, b) => a - b);
-  const games: number[][] = [];
-  const numbersCount = sortedSource.length;
-  
-  const targetOccurrences = Math.ceil((gameSize * totalGames) / numbersCount);
-  let pool: number[] = [];
-  
-  for (let i = 0; i < numbersCount; i++) {
-    for (let k = 0; k < targetOccurrences; k++) {
-      pool.push(sortedSource[i]);
-    }
-  }
+export const generateReducedClosing = (
+    poolNumbers: number[],
+    gameSize: number,
+    guaranteeThreshold: number,
+    maxGames: number = 2000,
+    excludedSignatures?: Set<string>
+): number[][] => {
+    if (poolNumbers.length <= gameSize) return [[...poolNumbers]];
 
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-
-  let poolIndex = 0;
-  for (let g = 0; g < totalGames; g++) {
-    const gameSet = new Set<number>();
+    const totalCombinationsPossible = combinationsCount(poolNumbers.length, gameSize);
     
-    let safety = 0;
-    while (gameSet.size < gameSize && safety < 1000) {
-      safety++;
-      if (poolIndex >= pool.length) {
-        poolIndex = 0; 
-        for (let i = sortedSource.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [sortedSource[i], sortedSource[j]] = [sortedSource[j], sortedSource[i]];
+    if (totalCombinationsPossible <= 10000) {
+        let allCombinations = generateCombinations(poolNumbers, gameSize);
+        if (excludedSignatures && excludedSignatures.size > 0) {
+            allCombinations = allCombinations.filter(g => !excludedSignatures.has(JSON.stringify(g)));
         }
-      }
-      
-      const num = pool[poolIndex];
-      poolIndex++;
-      
-      if (!gameSet.has(num)) {
-        gameSet.add(num);
-      }
+
+        allCombinations.sort((a, b) => {
+            const statsA = getStats(a);
+            const statsB = getStats(b);
+            const diffA = Math.abs(statsA.evens - statsA.odds);
+            const diffB = Math.abs(statsB.evens - statsB.odds);
+            const sumDistA = Math.abs(statsA.sum - 200);
+            const sumDistB = Math.abs(statsB.sum - 200);
+            return (diffA + sumDistA * 0.1) - (diffB + sumDistB * 0.1);
+        });
+
+        const selectedGames: number[][] = [];
+        for (let i = 0; i < allCombinations.length; i++) {
+            const candidate = allCombinations[i];
+            let isCovered = false;
+            for (const picked of selectedGames) {
+                const hits = calculateIntersection(picked, candidate);
+                if (hits >= guaranteeThreshold) {
+                    isCovered = true;
+                    break;
+                }
+            }
+            if (!isCovered) {
+                selectedGames.push(candidate);
+                if (selectedGames.length >= maxGames) break;
+            }
+        }
+        return selectedGames;
+    }
+
+    const reducedGames: number[][] = [];
+    const pool = [...poolNumbers];
+    const numberCounts: Record<number, number> = {};
+    pool.forEach(n => numberCounts[n] = 0);
+
+    let attempts = 0;
+    const maxAttempts = maxGames * 100;
+
+    while (reducedGames.length < maxGames && attempts < maxAttempts) {
+        attempts++;
+        const weightedPool = [...pool].sort((a, b) => {
+             return (numberCounts[a] + Math.random()) - (numberCounts[b] + Math.random());
+        });
+        
+        const candidate = weightedPool.slice(0, gameSize).sort((a, b) => a - b);
+        const sig = JSON.stringify(candidate);
+
+        if (excludedSignatures && excludedSignatures.has(sig)) continue;
+        if (reducedGames.some(g => JSON.stringify(g) === sig)) continue;
+
+        const stats = getStats(candidate);
+        const diff = Math.abs(stats.evens - stats.odds);
+        if (gameSize === 15 && diff > 5) continue; 
+
+        let isCovered = false;
+        for (const existingGame of reducedGames) {
+            let matches = calculateIntersection(existingGame, candidate);
+            if (matches >= guaranteeThreshold) {
+                isCovered = true;
+                break;
+            }
+        }
+        if (!isCovered) {
+            reducedGames.push(candidate);
+            candidate.forEach(n => numberCounts[n]++);
+        }
     }
     
-    games.push(Array.from(gameSet).sort((a, b) => a - b));
-  }
+    if (reducedGames.length === 0) {
+        let fallbackAttempts = 0;
+        while(reducedGames.length < Math.min(10, maxGames) && fallbackAttempts < 100) {
+             fallbackAttempts++;
+             const rand = [...pool].sort(()=>0.5-Math.random()).slice(0,gameSize).sort((a,b)=>a-b);
+             const sig = JSON.stringify(rand);
+             if (excludedSignatures && excludedSignatures.has(sig)) continue;
+             if (!reducedGames.some(g => JSON.stringify(g) === sig)) {
+                 reducedGames.push(rand);
+             }
+        }
+    }
+    return reducedGames;
+};
 
-  return games;
+export const generateMathematicalClosing = (
+    poolNumbers: number[],
+    gameSize: number,
+    limit: number,
+    excludedSignatures?: Set<string>
+): number[][] => {
+    const games: number[][] = [];
+    const usageCounts: Record<number, number> = {};
+    poolNumbers.forEach(n => usageCounts[n] = 0);
+
+    const maxPossibilities = combinationsCount(poolNumbers.length, gameSize);
+    const alreadyExcludedCount = excludedSignatures ? excludedSignatures.size : 0;
+    const remainingPossibilities = Math.max(0, maxPossibilities - alreadyExcludedCount);
+    const targetLimit = Math.min(limit, remainingPossibilities);
+
+    let maxOverlapAllowed = Math.max(2, gameSize - 3); 
+    if (poolNumbers.length <= gameSize + 2) maxOverlapAllowed = gameSize - 1;
+    else if (poolNumbers.length <= gameSize + 4) maxOverlapAllowed = gameSize - 2;
+
+    let attempts = 0;
+    const maxAttempts = limit * 500; 
+
+    while (games.length < targetLimit && attempts < maxAttempts) {
+        attempts++;
+        const candidatesCount = 20; 
+        let bestCandidate: number[] | null = null;
+        let bestScore = -Infinity;
+
+        for (let c = 0; c < candidatesCount; c++) {
+            const weightedPool = [...poolNumbers].map(n => ({
+                n,
+                weight: (1 / (usageCounts[n] + 1)) + (Math.random() * 0.8) 
+            })).sort((a, b) => b.weight - a.weight);
+
+            const candidate = weightedPool.slice(0, gameSize).map(x => x.n).sort((a, b) => a - b);
+            const sig = JSON.stringify(candidate);
+
+            if (excludedSignatures && excludedSignatures.has(sig)) continue;
+            if (games.some(g => JSON.stringify(g) === sig)) continue;
+
+            let minDistance = gameSize; 
+            let maxOverlapFound = 0;
+
+            for (const existingGame of games) {
+                const intersection = calculateIntersection(candidate, existingGame);
+                if (intersection > maxOverlapFound) maxOverlapFound = intersection;
+                const distance = gameSize - intersection;
+                if (distance < minDistance) minDistance = distance;
+            }
+
+            let score = minDistance * 10;
+            if (games.length === 0) score = Math.random();
+            if (games.length > 0 && maxOverlapFound > maxOverlapAllowed) score -= 1000; 
+            const stats = getStats(candidate);
+            const oddEvenDiff = Math.abs(stats.evens - stats.odds);
+            score -= oddEvenDiff;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = candidate;
+            }
+        }
+
+        if (bestCandidate) {
+            const sig = JSON.stringify(bestCandidate);
+            const isDuplicate = games.some(g => JSON.stringify(g) === sig);
+            const isExcluded = excludedSignatures ? excludedSignatures.has(sig) : false;
+
+            if (isDuplicate || isExcluded) continue;
+
+            let maxOverlap = 0;
+            if (games.length > 0) {
+                 maxOverlap = Math.max(...games.map(g => calculateIntersection(g, bestCandidate!)));
+            }
+
+            const relaxRules = attempts > (limit * 20); 
+            
+            if (maxOverlap <= maxOverlapAllowed || relaxRules) {
+                games.push(bestCandidate);
+                bestCandidate.forEach(n => usageCounts[n]++);
+            } else {
+                if (attempts % 50 === 0 && maxOverlapAllowed < gameSize - 1) {
+                    maxOverlapAllowed++;
+                }
+            }
+        }
+    }
+
+    if (games.length < targetLimit) {
+         const remaining = targetLimit - games.length;
+         const uniqueSet = new Set(games.map(g => JSON.stringify(g)));
+         
+         let safetyLoop = 0;
+         while(games.length < targetLimit && safetyLoop < (remaining * 200)) {
+            safetyLoop++;
+            const shuffled = [...poolNumbers].sort(() => 0.5 - Math.random());
+            const fallback = shuffled.slice(0, gameSize).sort((a,b)=>a-b);
+            const sig = JSON.stringify(fallback);
+            
+            if (!uniqueSet.has(sig) && (!excludedSignatures || !excludedSignatures.has(sig))) {
+                games.push(fallback);
+                uniqueSet.add(sig);
+            }
+         }
+    }
+    return games;
+};
+
+export const generateGuaranteedClosing = (
+    poolNumbers: number[],
+    gameSize: number,
+    targetHits: number, 
+    maxGamesLimit: number = 100 
+): number[][] => {
+    return generateMathematicalClosing(poolNumbers, gameSize, maxGamesLimit);
+};
+
+export const generateSmartPatternGames = (
+    sourceNumbers: number[],
+    totalGames: number,
+    gameSize: number,
+    gameConfig: GameConfig,
+    previousResultDezenas?: number[],
+    excludedSignatures?: Set<string>
+): number[][] => {
+    const games: number[][] = [];
+    const maxAttempts = totalGames * 2000; 
+    let attempts = 0;
+
+    const hasPreviousData = previousResultDezenas && previousResultDezenas.length > 0;
+    const baseResult = hasPreviousData ? previousResultDezenas! : [];
+
+    const sourceSet = new Set(sourceNumbers);
+    const availableFromLast = baseResult.filter(n => sourceSet.has(n));
+    const availableOthers = sourceNumbers.filter(n => !baseResult.includes(n));
+
+    const rules = {
+        minSum: 180, maxSum: 220,
+        minOdd: 7, maxOdd: 9,
+        minPrimes: 4, maxPrimes: 6,
+        repeats: [8, 9, 10]
+    };
+
+    if (gameConfig.id !== 'lotofacil') {
+        rules.minSum = 0; rules.maxSum = 9999;
+        rules.minOdd = 0; rules.maxOdd = gameSize;
+        rules.minPrimes = 0; rules.maxPrimes = gameSize;
+        rules.repeats = [];
+    }
+
+    while (games.length < totalGames && attempts < maxAttempts) {
+        attempts++;
+        let candidate: number[] = [];
+
+        if (gameConfig.id === 'lotofacil' && hasPreviousData) {
+            const r = Math.random();
+            let targetRepeats = 9;
+            if (r < 0.25) targetRepeats = 8;
+            else if (r > 0.75) targetRepeats = 10;
+
+            const actualRepeats = Math.min(targetRepeats, availableFromLast.length);
+            const neededOthers = gameSize - actualRepeats;
+
+            if (neededOthers <= availableOthers.length && neededOthers >= 0) {
+                 const pickedLast = [...availableFromLast].sort(() => 0.5 - Math.random()).slice(0, actualRepeats);
+                 const pickedOthers = [...availableOthers].sort(() => 0.5 - Math.random()).slice(0, neededOthers);
+                 candidate = [...pickedLast, ...pickedOthers].sort((a, b) => a - b);
+            } else {
+                candidate = [...sourceNumbers].sort(() => 0.5 - Math.random()).slice(0, gameSize).sort((a, b) => a - b);
+            }
+        } else {
+             candidate = [...sourceNumbers].sort(() => 0.5 - Math.random()).slice(0, gameSize).sort((a, b) => a - b);
+        }
+
+        if (candidate.length === gameSize) {
+            const sig = JSON.stringify(candidate);
+            if (excludedSignatures && excludedSignatures.has(sig)) continue;
+            if (games.some(g => JSON.stringify(g) === sig)) continue;
+
+            const stats = getStats(candidate);
+            const detailed = calculateDetailedStats(candidate, baseResult, gameConfig);
+            let isValid = true;
+
+            if (stats.sum < rules.minSum || stats.sum > rules.maxSum) isValid = false;
+            if (isValid && (detailed.impares < rules.minOdd || detailed.impares > rules.maxOdd)) isValid = false;
+            
+            if (isValid && gameConfig.id === 'lotofacil') {
+                if (detailed.primos < rules.minPrimes || detailed.primos > rules.maxPrimes) isValid = false;
+            }
+            if (isValid && hasLongSequence(candidate, gameConfig.id === 'lotofacil' ? 5 : 2)) isValid = false;
+
+            if (isValid) {
+                games.push(candidate);
+            }
+        }
+    }
+
+    if (games.length < totalGames) {
+        const remaining = totalGames - games.length;
+        for(let i=0; i<remaining; i++) {
+             const fallback = [...sourceNumbers].sort(() => 0.5 - Math.random()).slice(0, gameSize).sort((a, b) => a - b);
+             const sig = JSON.stringify(fallback);
+             if (excludedSignatures && excludedSignatures.has(sig)) continue;
+             if (!games.some(g => JSON.stringify(g) === sig)) {
+                 games.push(fallback);
+             }
+        }
+    }
+    return games;
 };
 
 export const filterGamesWithWinners = (history: PastGameResult[]): PastGameResult[] => {
@@ -82,38 +489,6 @@ export const filterGamesWithWinners = (history: PastGameResult[]): PastGameResul
     return true; 
   });
 };
-
-export const calculateHotNumbers = (pastResults: PastGameResult[], topN: number = 20): number[] => {
-  const frequency: Record<number, number> = {};
-
-  pastResults.forEach(result => {
-    result.dezenas.forEach(d => {
-      const num = parseInt(d, 10);
-      if (!isNaN(num)) {
-        frequency[num] = (frequency[num] || 0) + 1;
-      }
-    });
-  });
-
-  const sortedNumbers = Object.entries(frequency)
-    .map(([num, count]) => ({ num: parseInt(num), count }))
-    .sort((a, b) => b.count - a.count) 
-    .slice(0, topN) 
-    .map(obj => obj.num)
-    .sort((a, b) => a - b); 
-
-  return sortedNumbers;
-};
-
-const PRIMES = new Set([
-  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97
-]);
-
-const FIBONACCI = new Set([0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]);
-
-const TRIANGULARES = new Set([0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91]);
-
-const MOLDURA_CACHE: Record<string, Set<number>> = {};
 
 const getMolduraSet = (game: GameConfig): Set<number> => {
   if (MOLDURA_CACHE[game.id]) return MOLDURA_CACHE[game.id];
@@ -197,98 +572,56 @@ export const calculateDetailedStats = (numbers: number[], previousNumbers: numbe
 };
 
 export const calculateGameScore = (game: number[], gameConfig: GameConfig, previousNumbers?: number[]): number => {
-    let score = 95; 
+    let score = 100; 
     const stats = calculateDetailedStats(game, previousNumbers, gameConfig);
 
-    if (gameConfig.id === 'lotofacil') {
-        if (stats.impares < 5 || stats.impares > 10) score -= 25;
-        if (stats.impares === 7 || stats.impares === 8) score += 5;
-        if (stats.soma < 170 || stats.soma > 230) score -= 15;
-        if (stats.soma >= 190 && stats.soma <= 210) score += 5;
-        if (stats.primos < 3 || stats.primos > 7) score -= 10;
-        if (typeof stats.repetidos === 'number') {
-            if (stats.repetidos < 7 || stats.repetidos > 11) score -= 15;
-            if (stats.repetidos >= 8 && stats.repetidos <= 10) score += 5;
-        }
-    } else if (gameConfig.id === 'megasena') {
-        if (stats.pares < 2 || stats.pares > 4) score -= 15;
-        if (stats.soma < 120 || stats.soma > 280) score -= 15;
+    if (gameConfig.id !== 'lotofacil' && gameConfig.id !== 'lotomania') {
+        if (hasLongSequence(game, 2)) score -= 30; 
+        if (hasLongSequence(game, 3)) score -= 50; 
     }
 
-    const finalScore = Math.min(99, Math.max(40, score));
-    const variance = (stats.soma % 5); 
-    return Math.min(99, finalScore - variance);
-};
+    if (gameConfig.id === 'lotofacil') {
+        if (stats.impares < 6 || stats.impares > 9) score -= 40; 
+        else if (stats.impares === 7 || stats.impares === 8) { score += 5; } 
+        else score -= 5;
 
-export const filterBestGames = (
-  allGames: number[][], 
-  gameConfig: GameConfig, 
-  previousNumbers: number[] | undefined,
-  limit: number = 20
-): { games: number[][], originalCount: number } => {
-    const scoredGames = allGames.map(game => ({
-        game,
-        score: calculateGameScore(game, gameConfig, previousNumbers)
-    }));
-    scoredGames.sort((a, b) => b.score - a.score);
-    const topGames = scoredGames.slice(0, limit).map(sg => sg.game);
-    return {
-        games: topGames,
-        originalCount: allGames.length
-    };
+        if (stats.soma < 180 || stats.soma > 220) score -= 40;
+        else if (stats.soma >= 190 && stats.soma <= 210) score += 10; 
+
+        if (typeof stats.repetidos === 'number') {
+            if (stats.repetidos === 9) score += 20; 
+            else if (stats.repetidos === 8 || stats.repetidos === 10) score += 10; 
+            else if (stats.repetidos < 7 || stats.repetidos > 11) score -= 50; 
+        }
+        if (stats.primos < 4 || stats.primos > 6) score -= 20;
+        if (stats.moldura < 8 || stats.moldura > 12) score -= 10;
+
+    } else if (gameConfig.id === 'megasena') {
+        if (stats.pares < 2 || stats.pares > 4) score -= 20;
+        if (stats.soma < 120 || stats.soma > 250) score -= 30;
+        const quads = getQuadrantDistribution(game, 60);
+        if (quads.some(q => q > 3)) score -= 30; 
+        if (quads.filter(q => q === 0).length >= 2) score -= 20; 
+    } else if (gameConfig.id === 'quina') {
+        if (stats.soma < 100 || stats.soma > 300) score -= 30;
+        if (hasLongSequence(game, 1)) score -= 15; 
+    }
+
+    return Math.max(0, Math.min(100, score));
 };
 
 export const GAME_YEAR_STARTS: Record<string, Record<number, number>> = {
-  lotofacil: {
-    2003: 1, 2004: 18, 2005: 71, 2006: 124, 2007: 177, 2008: 285, 2009: 393, 2010: 501, 2011: 609, 2012: 717,
-    2013: 864, 2014: 1011, 2015: 1162, 2016: 1315, 2017: 1466, 2018: 1618, 2019: 1769, 2020: 1913,
-    2021: 2123, 2022: 2412, 2023: 2703, 2024: 2993, 2025: 3282
-  },
-  megasena: {
-    1996: 1, 1997: 44, 1998: 96, 1999: 148, 2000: 200, 2001: 253, 2002: 331, 2003: 436, 2004: 526, 
-    2005: 631, 2006: 733, 2007: 836, 2008: 937, 2009: 1041, 2010: 1146, 2011: 1246, 2012: 1351, 
-    2013: 1456, 2014: 1561, 2015: 1666, 2016: 1776, 2017: 1891, 2018: 2001, 2019: 2111, 2020: 2221, 
-    2021: 2331, 2022: 2441, 2023: 2551, 2024: 2671, 2025: 2814
-  },
-  quina: {
-    1994: 1, 1995: 57, 1996: 161, 1997: 265, 1998: 368, 1999: 472, 2000: 641, 2001: 809, 2002: 976,
-    2003: 1086, 2004: 1241, 2005: 1395, 2006: 1547, 2007: 1700, 2008: 1850, 2009: 2000, 2010: 2185,
-    2011: 2486, 2012: 2785, 2013: 3086, 2014: 3385, 2015: 3683, 2016: 3973, 2017: 4273, 2018: 4571,
-    2019: 4865, 2020: 5160, 2021: 5456, 2022: 5744, 2023: 6040, 2024: 6330, 2025: 6620
-  },
-  lotomania: {
-    1999: 1, 2000: 16, 2001: 69, 2002: 172, 2003: 275, 2004: 379, 2005: 483, 2006: 586, 2007: 690,
-    2008: 793, 2009: 896, 2010: 1000, 2011: 1104, 2012: 1208, 2013: 1312, 2014: 1414, 2015: 1518,
-    2016: 1621, 2017: 1724, 2018: 1828, 2019: 1932, 2020: 2036, 2021: 2141, 2022: 2257, 2023: 2413,
-    2024: 2568, 2025: 2718
-  },
-  timemania: {
-    2008: 1, 2009: 46, 2010: 98, 2011: 172, 2012: 276, 2013: 380, 2014: 527, 2015: 672, 2016: 825,
-    2017: 978, 2018: 1127, 2019: 1276, 2020: 1427, 2021: 1584, 2022: 1733, 2023: 1881, 2024: 2036,
-    2025: 2188
-  },
-  diadesorte: {
-    2018: 1, 2019: 98, 2020: 247, 2021: 402, 2022: 551, 2023: 703, 2024: 858, 2025: 1015
-  },
-  duplasena: {
-    2001: 1, 2002: 15, 2003: 114, 2004: 220, 2005: 325, 2006: 428, 2007: 533, 2008: 636,
-    2009: 742, 2010: 846, 2011: 950, 2012: 1054, 2013: 1158, 2014: 1261, 2015: 1365,
-    2016: 1470, 2017: 1618, 2018: 1765, 2019: 1913, 2020: 2061, 2021: 2197, 2022: 2343,
-    2023: 2490, 2024: 2636, 2025: 2780
-  },
-  maismilionaria: {
-    2022: 1, 2023: 32, 2024: 110, 2025: 190
-  },
-  supersete: {
-    2020: 1, 2021: 39, 2022: 190, 2023: 342, 2024: 492, 2025: 642
-  },
-  federal: {
-      2015: 1, 2016: 5037, 2017: 5142, 2018: 5246, 2019: 5350, 2020: 5455, 
-      2021: 5527, 2022: 5627, 2023: 5728, 2024: 5829, 2025: 5930
-  }
+  lotofacil: { 2003: 1, 2024: 2993, 2025: 3282 },
+  megasena: { 1996: 1, 2024: 2671, 2025: 2814 },
+  quina: { 1994: 1, 2024: 6330, 2025: 6620 },
+  lotomania: { 1999: 1, 2024: 2568, 2025: 2718 },
+  timemania: { 2008: 1, 2024: 2036, 2025: 2188 },
+  diadesorte: { 2018: 1, 2024: 858, 2025: 1015 },
+  duplasena: { 2001: 1, 2024: 2636, 2025: 2780 },
+  maismilionaria: { 2022: 1, 2024: 110, 2025: 190 },
+  supersete: { 2020: 1, 2024: 492, 2025: 642 },
+  federal: { 2015: 1, 2024: 5829, 2025: 5930 }
 };
-
-export const LOTOFACIL_YEAR_START = GAME_YEAR_STARTS.lotofacil;
 
 export const getYearsList = (startYear: number = 2003) => {
   const currentYear = new Date().getFullYear();
