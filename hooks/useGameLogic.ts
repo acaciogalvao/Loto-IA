@@ -1,17 +1,18 @@
 
+
 import { useState, useEffect, useMemo } from 'react';
 import { GameConfig, AppStatus, AnalysisResult, TrendResult } from '../types';
 import { DEFAULT_GAME } from '../utils/gameConfig';
 import { vibrate } from '../utils/uiUtils';
 import { generateSmartPatternGames, generateReducedClosing, generateMathematicalClosing } from '../utils/lotteryLogic';
-import { getAiSuggestions } from '../services/geminiService';
+import { getAiSuggestions, analyzeClosing } from '../services/geminiService';
 
 export type ClosingMethod = 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode';
 
 export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const [selectedNumbers, setSelectedNumbers] = useState<Set<number>>(new Set());
   const [generatedGames, setGeneratedGames] = useState<number[][]>([]);
-  const [generatedHistory, setGeneratedHistory] = useState<Set<string>>(new Set()); // NOVO: Histórico de exclusão
+  const [generatedHistory, setGeneratedHistory] = useState<Set<string>>(new Set()); 
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [trends, setTrends] = useState<TrendResult | null>(null);
@@ -35,20 +36,17 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     return Array.from({ length: Number(activeGame.totalNumbers) }, (_, i) => i + 1);
   }, [activeGame]);
 
-  // CORREÇÃO: Cálculo de custo baseado na quantidade de dezenas de cada jogo
   const totalGenerationCost = useMemo(() => {
       if (activeGame.id === 'federal' || generatedGames.length === 0) return 0;
       
       let total = 0;
       generatedGames.forEach(game => {
           const qty = game.length;
-          // Busca o preço na tabela correspondente à quantidade de números deste jogo
           const priceItem = activeGame.priceTable.find(p => p.quantity == qty);
           
           if (priceItem && typeof priceItem.price === 'number') {
               total += priceItem.price;
           } else {
-              // Fallback se não encontrar (pega o preço base/mínimo)
               const basePrice = activeGame.priceTable[0]?.price;
               total += (typeof basePrice === 'number' ? basePrice : 0);
           }
@@ -62,7 +60,6 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     setGameSize(activeGame.minSelection);
   }, [activeGame.id]);
 
-  // Efeito para travar limite em 1 no modo livre
   useEffect(() => {
     if (closingMethod === 'free_mode') {
         setGenerationLimit(1);
@@ -82,14 +79,14 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
       newSelection.add(num);
     }
     setSelectedNumbers(newSelection);
-    setGeneratedHistory(new Set()); // Reset history when selection changes
+    setGeneratedHistory(new Set()); 
   };
 
   const handleClear = () => {
     vibrate(20);
     setSelectedNumbers(new Set());
     setGeneratedGames([]);
-    setGeneratedHistory(new Set()); // Reset history
+    setGeneratedHistory(new Set());
     setAnalysis(null);
     setStatus(AppStatus.IDLE);
     setTrends(null);
@@ -101,33 +98,25 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const handleGameSizeChangeWithAutoSelect = (newSize: number, notify: (msg: string, type: 'info' | 'success') => void) => {
       vibrate(10);
       setGameSize(newSize);
-      setGeneratedHistory(new Set()); // Reset history when size changes
+      setGeneratedHistory(new Set()); 
       notify(`Tamanho alterado para ${newSize}`, 'info');
   };
 
   const importGame = (numbers: number[], notify: (msg: string, type: 'success' | 'info' | 'error') => void) => {
     vibrate(15);
-    
-    // Filtra apenas números válidos para o jogo atual
     const validNumbers = numbers.filter(n => allNumbers.includes(n));
-    
     if (validNumbers.length === 0) {
         notify('Nenhum número válido encontrado para importar.', 'error');
         return;
     }
-
-    // Se a quantidade de números importados for maior que o máximo permitido, corta
     let numsToSet = validNumbers;
     if (validNumbers.length > activeGame.maxSelection) {
          notify(`Limitado aos primeiros ${activeGame.maxSelection} números.`, 'info');
          numsToSet = validNumbers.slice(0, activeGame.maxSelection);
     }
-
-    // Ajusta o tamanho do jogo se necessário para caber a importação (se for menor que o mínimo não tem problema, mas se for maior que o gameSize atual, ajustamos)
     if (numsToSet.length > gameSize) {
         setGameSize(numsToSet.length);
     }
-
     setSelectedNumbers(new Set(numsToSet));
     setGeneratedHistory(new Set());
     notify(`${numsToSet.length} números importados!`, 'success');
@@ -136,12 +125,12 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const handleGenerate = async (notify: (msg: string, type: 'success' | 'error' | 'info') => void) => {
     vibrate(20);
     setStatus(AppStatus.GENERATING);
+    setLoadingProgress(0);
     
-    // Força limite 1 se for Modo Livre
     const limit = closingMethod === 'free_mode' ? 1 : (Number(generationLimit) || 10);
 
-    // Pequeno delay para UI renderizar o status de carregamento
-    requestAnimationFrame(() => {
+    // Usa setTimeout para sair da Call Stack atual e permitir que o UI renderize o estado 'GENERATING'
+    setTimeout(async () => {
         try {
             let finalGames: number[][] = [];
             const selectedArray = Array.from(selectedNumbers) as number[];
@@ -150,7 +139,6 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
             let poolNumbers: number[] = [];
             let effectiveSize = gameSize;
 
-            // Lógica de Pool baseada na seleção
             if (selectedArray.length > 0) {
                 if (selectedArray.length < gameSize) {
                     fixedNumbers = [...selectedArray];
@@ -167,52 +155,36 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
                 effectiveSize = gameSize;
             }
 
-            // Clona o histórico atual para usar na geração
             const currentHistory = new Set<string>(generatedHistory);
 
-            // --- LÓGICA DE GERAÇÃO POR MÉTODO ---
-            const generateBatch = (pool: number[], qty: number, method: ClosingMethod, historyToExclude: Set<string>) => {
+            // Definição da função de geração em lote ASSÍNCRONA
+            const generateBatch = async (pool: number[], qty: number, method: ClosingMethod, historyToExclude: Set<string>) => {
                 if (qty <= 0) return [];
                 
+                const progressCallback = (p: number) => setLoadingProgress(p);
+
                 if (method === 'smart_pattern') {
                     const prevResult = latestResult ? latestResult.dezenas.map((d: string) => parseInt(d)) : undefined;
-                    return generateSmartPatternGames(pool, qty, effectiveSize, activeGame, prevResult, historyToExclude);
+                    return await generateSmartPatternGames(pool, qty, effectiveSize, activeGame, prevResult, historyToExclude, progressCallback);
                 } 
                 else if (method === 'reduced') {
                     const guarantee = Math.max(2, effectiveSize - 1);
-                    const games = generateReducedClosing(pool, effectiveSize, guarantee, qty, historyToExclude);
-                    // Completa se faltar
-                    if (games.length < qty) {
-                        const uniqueSet = new Set(games.map(g => JSON.stringify(g)));
-                        for(let i=games.length; i<qty; i++) {
-                            const shuffled = [...pool].sort(() => 0.5 - Math.random());
-                            const fallback = shuffled.slice(0, effectiveSize).sort((a,b)=>a-b);
-                            const sig = JSON.stringify(fallback);
-                            if (!uniqueSet.has(sig) && !historyToExclude.has(sig)) {
-                                games.push(fallback);
-                                uniqueSet.add(sig);
-                            }
-                        }
-                    }
-                    return games;
+                    return await generateReducedClosing(pool, effectiveSize, guarantee, qty, historyToExclude, progressCallback);
                 } 
                 else if (method === 'guaranteed') {
-                    return generateMathematicalClosing(pool, effectiveSize, qty, historyToExclude);
+                    return await generateMathematicalClosing(pool, effectiveSize, qty, historyToExclude, progressCallback);
                 } 
                 else {
-                    // Modo Livre (Aleatório simples) - Limitado a 1 por vez no UI, mas loop genérico aqui
+                    // Modo Livre (Simplificado, não precisa de worker complexo)
                     const games = [];
                     const uniqueSet = new Set<string>();
-                    
                     let attempts = 0;
                     const maxAttempts = qty * 500;
-
                     while(games.length < qty && attempts < maxAttempts) {
                          attempts++;
                          const shuffled = [...pool].sort(() => 0.5 - Math.random());
                          const game = shuffled.slice(0, effectiveSize).sort((a,b)=>a-b);
                          const sig = JSON.stringify(game);
-                         
                          if(!uniqueSet.has(sig) && !historyToExclude.has(sig)) {
                              games.push(game);
                              uniqueSet.add(sig);
@@ -222,38 +194,31 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
                 }
             };
 
-            // 1. Tenta gerar com o pool restrito (seleção do usuário)
-            finalGames = generateBatch(poolNumbers, limit, closingMethod, currentHistory);
+            // 1. Geração Principal
+            finalGames = await generateBatch(poolNumbers, limit, closingMethod, currentHistory);
 
-            // 2. Verifica se atingiu a quantidade. Se não, expande para TODOS os números
-            // Isso acontece se o usuário selecionou poucos números ou já esgotou as combinações possíveis no histórico
+            // 2. Fallback de Preenchimento
             if (finalGames.length < limit && closingMethod !== 'free_mode') {
-                 // Adiciona os que acabamos de gerar à lista de exclusão temporária para a expansão não repetir
                  const tempHistory = new Set(currentHistory);
                  finalGames.forEach(g => tempHistory.add(JSON.stringify(g)));
-
                  const needed = limit - finalGames.length;
                  const extendedPool = [...allNumbers];
-                 
-                 const supplement = generateBatch(extendedPool, needed, closingMethod, tempHistory);
+                 const supplement = await generateBatch(extendedPool, needed, closingMethod, tempHistory);
                  finalGames = [...finalGames, ...supplement];
             } else if (finalGames.length < limit && closingMethod === 'free_mode') {
-                 // Fallback específico para modo livre se falhar com a seleção estrita (ex: faltam numeros)
                  const needed = limit - finalGames.length;
                  const extendedPool = [...allNumbers];
-                 // No modo livre com seleção incompleta, completa com aleatórios globais
                  const tempHistory = new Set(currentHistory);
                  finalGames.forEach(g => tempHistory.add(JSON.stringify(g)));
-                 const supplement = generateBatch(extendedPool, needed, closingMethod, tempHistory);
+                 const supplement = await generateBatch(extendedPool, needed, closingMethod, tempHistory);
                  finalGames = [...finalGames, ...supplement];
             }
 
-            // Pós-Processamento: Adicionar Fixos e Remover Duplicatas
+            // Pós-Processamento
             let assembledGames = finalGames.map(g => {
                 return [...fixedNumbers, ...g].sort((a, b) => a - b);
             });
             
-            // Filtro final de segurança
             const uniqueSet = new Set<string>();
             assembledGames = assembledGames.filter(g => {
                 const s = JSON.stringify(g);
@@ -262,20 +227,17 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
                 return true;
             });
 
-            // GARANTIR LIMITE EXATO (Corte)
             if (assembledGames.length > limit) {
                  assembledGames = assembledGames.slice(0, limit);
             }
             
-            // Preenchimento final de segurança
+            // Loop Final de Segurança
             let loopSafety = 0;
-            // No modo livre só deve rodar se realmente não tiver gerado nada
             const allowFill = closingMethod !== 'free_mode' || assembledGames.length === 0;
-            
             while (assembledGames.length < limit && allowFill && loopSafety < 1000) {
                  loopSafety++;
                  const shuffled = [...allNumbers].sort(() => 0.5 - Math.random());
-                 const fullGame = shuffled.sort((a, b) => a - b);
+                 const fullGame = shuffled.slice(0, gameSize).sort((a, b) => a - b);
                  const s = JSON.stringify(fullGame);
                  if (!uniqueSet.has(s) && !currentHistory.has(s)) {
                     assembledGames.push(fullGame);
@@ -285,26 +247,26 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
 
             setGeneratedGames(assembledGames);
             
-            // Atualiza o histórico com os novos jogos gerados
             const newHistory = new Set(currentHistory);
             assembledGames.forEach(g => newHistory.add(JSON.stringify(g)));
             setGeneratedHistory(newHistory);
-
+            
+            // AI Analysis of the generated batch
+            if (assembledGames.length > 0) {
+                 // Non-blocking analysis
+                 analyzeClosing(selectedArray, assembledGames.length).then(aiAnalysis => {
+                      setAnalysis(aiAnalysis);
+                 });
+            } else {
+                 setAnalysis({
+                    message: "Geração concluída.",
+                    score: 100,
+                    tips: "Jogos gerados."
+                });
+            }
+            
             setStatus(AppStatus.SUCCESS);
-            
-            const methodLabel = {
-                'smart_pattern': 'Padrão Ouro',
-                'reduced': 'Fechamento',
-                'guaranteed': 'Matemático',
-                'free_mode': 'Modo Livre'
-            }[closingMethod];
-
-            setAnalysis({
-                message: `Geração ${methodLabel} concluída.`,
-                score: 100,
-                tips: "Jogos gerados com sucesso."
-            });
-            
+            setLoadingProgress(100);
             notify(`${assembledGames.length} jogos gerados!`, 'success');
 
         } catch (error) {
@@ -312,15 +274,14 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
             notify("Erro ao gerar jogos.", 'error');
             setStatus(AppStatus.ERROR);
         }
-    });
+    }, 50);
   };
 
   const handleAiSuggestion = async (notify: (msg: string, type: 'info' | 'success' | 'error') => void) => {
     vibrate(20);
     setStatus(AppStatus.GENERATING);
-    setLoadingProgress(0); // Reset inicial
+    setLoadingProgress(0);
     
-    // SIMULAÇÃO DE PROGRESSO VISUAL
     const progressInterval = setInterval(() => {
         setLoadingProgress(prev => {
             if (prev >= 90) return prev; 
@@ -329,14 +290,20 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     }, 250);
 
     try {
-        const suggestion = await getAiSuggestions(activeGame.name, activeGame.minSelection, activeGame.totalNumbers);
+        const currentSelArray = Array.from(selectedNumbers);
+        const suggestion = await getAiSuggestions(
+            activeGame.name, 
+            activeGame.minSelection, 
+            activeGame.totalNumbers,
+            currentSelArray // Pass context
+        );
         
         clearInterval(progressInterval);
         setLoadingProgress(100);
 
         if (suggestion && suggestion.length > 0) {
             setSelectedNumbers(new Set(suggestion));
-            setGeneratedHistory(new Set()); // Reset history on AI suggestion
+            setGeneratedHistory(new Set()); 
             notify("Sugestão de IA aplicada!", 'success');
         } else {
             notify("Não foi possível obter sugestão da IA.", 'error');

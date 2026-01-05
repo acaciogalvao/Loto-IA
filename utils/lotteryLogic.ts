@@ -60,19 +60,12 @@ export const isFixedPrize = (gameId: string, hits: number): boolean => {
 export const calculatePrizeForHits = (hits: number, result: LotteryResult | PastGameResult, gameId: string): number => {
     const pEntry = result.premiacoes.find(p => p.faixa === hits);
     
-    // Se encontrou a faixa na lista de premiações
     if (pEntry) {
-        // CASO 1: Existem ganhadores (ou a API reporta valor na faixa)
         if (pEntry.ganhadores > 0 || pEntry.valor > 0) {
-            // CORREÇÃO SOLICITADA: O valor retornado pela API já é considerado o prêmio individual (ou o usuário deseja visualizar o pote total como prêmio)
-            // Não realizamos mais a divisão (val / pEntry.ganhadores).
             return Number(pEntry.valor) || 0;
         }
 
-        // CASO 2: ACUMULOU (0 Ganhadores Oficiais e valor zerado na faixa de rateio)
-        // O simulador assume que se o usuário jogou e acertou, ele ganharia o prêmio acumulado.
         if (pEntry.ganhadores === 0) {
-            // Verifica se é a faixa principal do jogo para pegar o valor acumulado
             const isMaxTier = (gameId === 'lotofacil' && hits === 15) ||
                               (gameId === 'megasena' && hits === 6) ||
                               (gameId === 'quina' && hits === 5) ||
@@ -129,7 +122,6 @@ const getQuadrantDistribution = (numbers: number[], totalNumbers: number): numbe
     return q;
 };
 
-// Helper simples para fatorial/combinação aproximada
 function combinationsCount(n: number, k: number): number {
     if (k < 0 || k > n) return 0;
     if (k === 0 || k === n) return 1;
@@ -171,51 +163,19 @@ export const generateCombinations = (sourceNumbers: number[], combinationSize: n
   return result;
 };
 
-export const generateReducedClosing = (
+// --- ASYNC GENERATORS PARA NÃO TRAVAR UI ---
+
+const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+
+export const generateReducedClosing = async (
     poolNumbers: number[],
     gameSize: number,
     guaranteeThreshold: number,
     maxGames: number = 2000,
-    excludedSignatures?: Set<string>
-): number[][] => {
+    excludedSignatures?: Set<string>,
+    onProgress?: (percent: number) => void
+): Promise<number[][]> => {
     if (poolNumbers.length <= gameSize) return [[...poolNumbers]];
-
-    const totalCombinationsPossible = combinationsCount(poolNumbers.length, gameSize);
-    
-    if (totalCombinationsPossible <= 10000) {
-        let allCombinations = generateCombinations(poolNumbers, gameSize);
-        if (excludedSignatures && excludedSignatures.size > 0) {
-            allCombinations = allCombinations.filter(g => !excludedSignatures.has(JSON.stringify(g)));
-        }
-
-        allCombinations.sort((a, b) => {
-            const statsA = getStats(a);
-            const statsB = getStats(b);
-            const diffA = Math.abs(statsA.evens - statsA.odds);
-            const diffB = Math.abs(statsB.evens - statsB.odds);
-            const sumDistA = Math.abs(statsA.sum - 200);
-            const sumDistB = Math.abs(statsB.sum - 200);
-            return (diffA + sumDistA * 0.1) - (diffB + sumDistB * 0.1);
-        });
-
-        const selectedGames: number[][] = [];
-        for (let i = 0; i < allCombinations.length; i++) {
-            const candidate = allCombinations[i];
-            let isCovered = false;
-            for (const picked of selectedGames) {
-                const hits = calculateIntersection(picked, candidate);
-                if (hits >= guaranteeThreshold) {
-                    isCovered = true;
-                    break;
-                }
-            }
-            if (!isCovered) {
-                selectedGames.push(candidate);
-                if (selectedGames.length >= maxGames) break;
-            }
-        }
-        return selectedGames;
-    }
 
     const reducedGames: number[][] = [];
     const pool = [...poolNumbers];
@@ -227,6 +187,13 @@ export const generateReducedClosing = (
 
     while (reducedGames.length < maxGames && attempts < maxAttempts) {
         attempts++;
+        
+        // Yield a cada 200 tentativas para atualizar UI
+        if (attempts % 200 === 0) {
+            await yieldToMain();
+            if (onProgress) onProgress(Math.min(99, Math.floor((reducedGames.length / maxGames) * 100)));
+        }
+
         const weightedPool = [...pool].sort((a, b) => {
              return (numberCounts[a] + Math.random()) - (numberCounts[b] + Math.random());
         });
@@ -255,6 +222,7 @@ export const generateReducedClosing = (
         }
     }
     
+    // Fallback fill
     if (reducedGames.length === 0) {
         let fallbackAttempts = 0;
         while(reducedGames.length < Math.min(10, maxGames) && fallbackAttempts < 100) {
@@ -270,31 +238,29 @@ export const generateReducedClosing = (
     return reducedGames;
 };
 
-export const generateMathematicalClosing = (
+export const generateMathematicalClosing = async (
     poolNumbers: number[],
     gameSize: number,
     limit: number,
-    excludedSignatures?: Set<string>
-): number[][] => {
+    excludedSignatures?: Set<string>,
+    onProgress?: (percent: number) => void
+): Promise<number[][]> => {
     const games: number[][] = [];
     const usageCounts: Record<number, number> = {};
     poolNumbers.forEach(n => usageCounts[n] = 0);
 
-    const maxPossibilities = combinationsCount(poolNumbers.length, gameSize);
-    const alreadyExcludedCount = excludedSignatures ? excludedSignatures.size : 0;
-    const remainingPossibilities = Math.max(0, maxPossibilities - alreadyExcludedCount);
-    const targetLimit = Math.min(limit, remainingPossibilities);
-
-    let maxOverlapAllowed = Math.max(2, gameSize - 3); 
-    if (poolNumbers.length <= gameSize + 2) maxOverlapAllowed = gameSize - 1;
-    else if (poolNumbers.length <= gameSize + 4) maxOverlapAllowed = gameSize - 2;
-
     let attempts = 0;
     const maxAttempts = limit * 500; 
+    let maxOverlapAllowed = Math.max(2, gameSize - 3); 
 
-    while (games.length < targetLimit && attempts < maxAttempts) {
+    while (games.length < limit && attempts < maxAttempts) {
         attempts++;
-        const candidatesCount = 20; 
+        if (attempts % 200 === 0) {
+            await yieldToMain();
+            if (onProgress) onProgress(Math.min(99, Math.floor((games.length / limit) * 100)));
+        }
+
+        const candidatesCount = 10; // Reduzido para performance
         let bestCandidate: number[] | null = null;
         let bestScore = -Infinity;
 
@@ -323,10 +289,7 @@ export const generateMathematicalClosing = (
             let score = minDistance * 10;
             if (games.length === 0) score = Math.random();
             if (games.length > 0 && maxOverlapFound > maxOverlapAllowed) score -= 1000; 
-            const stats = getStats(candidate);
-            const oddEvenDiff = Math.abs(stats.evens - stats.odds);
-            score -= oddEvenDiff;
-
+            
             if (score > bestScore) {
                 bestScore = score;
                 bestCandidate = candidate;
@@ -338,33 +301,33 @@ export const generateMathematicalClosing = (
             const isDuplicate = games.some(g => JSON.stringify(g) === sig);
             const isExcluded = excludedSignatures ? excludedSignatures.has(sig) : false;
 
-            if (isDuplicate || isExcluded) continue;
+            if (!isDuplicate && !isExcluded) {
+                let maxOverlap = 0;
+                if (games.length > 0) {
+                     maxOverlap = Math.max(...games.map(g => calculateIntersection(g, bestCandidate!)));
+                }
 
-            let maxOverlap = 0;
-            if (games.length > 0) {
-                 maxOverlap = Math.max(...games.map(g => calculateIntersection(g, bestCandidate!)));
-            }
-
-            const relaxRules = attempts > (limit * 20); 
-            
-            if (maxOverlap <= maxOverlapAllowed || relaxRules) {
-                games.push(bestCandidate);
-                bestCandidate.forEach(n => usageCounts[n]++);
-            } else {
-                if (attempts % 50 === 0 && maxOverlapAllowed < gameSize - 1) {
-                    maxOverlapAllowed++;
+                if (maxOverlap <= maxOverlapAllowed || attempts > (limit * 20)) {
+                    games.push(bestCandidate);
+                    bestCandidate.forEach(n => usageCounts[n]++);
+                } else {
+                    if (attempts % 50 === 0 && maxOverlapAllowed < gameSize - 1) {
+                        maxOverlapAllowed++;
+                    }
                 }
             }
         }
     }
-
-    if (games.length < targetLimit) {
-         const remaining = targetLimit - games.length;
+    
+    // Fill remaining if needed
+    if (games.length < limit) {
+         const remaining = limit - games.length;
          const uniqueSet = new Set(games.map(g => JSON.stringify(g)));
-         
          let safetyLoop = 0;
-         while(games.length < targetLimit && safetyLoop < (remaining * 200)) {
+         while(games.length < limit && safetyLoop < (remaining * 200)) {
             safetyLoop++;
+            if (safetyLoop % 50 === 0) await yieldToMain();
+            
             const shuffled = [...poolNumbers].sort(() => 0.5 - Math.random());
             const fallback = shuffled.slice(0, gameSize).sort((a,b)=>a-b);
             const sig = JSON.stringify(fallback);
@@ -375,26 +338,19 @@ export const generateMathematicalClosing = (
             }
          }
     }
+
     return games;
 };
 
-export const generateGuaranteedClosing = (
-    poolNumbers: number[],
-    gameSize: number,
-    targetHits: number, 
-    maxGamesLimit: number = 100 
-): number[][] => {
-    return generateMathematicalClosing(poolNumbers, gameSize, maxGamesLimit);
-};
-
-export const generateSmartPatternGames = (
+export const generateSmartPatternGames = async (
     sourceNumbers: number[],
     totalGames: number,
     gameSize: number,
     gameConfig: GameConfig,
     previousResultDezenas?: number[],
-    excludedSignatures?: Set<string>
-): number[][] => {
+    excludedSignatures?: Set<string>,
+    onProgress?: (percent: number) => void
+): Promise<number[][]> => {
     const games: number[][] = [];
     const maxAttempts = totalGames * 2000; 
     let attempts = 0;
@@ -422,6 +378,11 @@ export const generateSmartPatternGames = (
 
     while (games.length < totalGames && attempts < maxAttempts) {
         attempts++;
+        if (attempts % 200 === 0) {
+            await yieldToMain();
+            if (onProgress) onProgress(Math.min(99, Math.floor((games.length / totalGames) * 100)));
+        }
+
         let candidate: number[] = [];
 
         if (gameConfig.id === 'lotofacil' && hasPreviousData) {
@@ -467,9 +428,11 @@ export const generateSmartPatternGames = (
         }
     }
 
+    // Fill remaining
     if (games.length < totalGames) {
         const remaining = totalGames - games.length;
         for(let i=0; i<remaining; i++) {
+             if (i % 20 === 0) await yieldToMain();
              const fallback = [...sourceNumbers].sort(() => 0.5 - Math.random()).slice(0, gameSize).sort((a, b) => a - b);
              const sig = JSON.stringify(fallback);
              if (excludedSignatures && excludedSignatures.has(sig)) continue;
