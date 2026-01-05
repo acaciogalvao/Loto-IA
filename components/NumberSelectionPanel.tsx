@@ -17,6 +17,8 @@ interface NumberSelectionPanelProps {
   status: AppStatus;
   resultNumbers?: Set<number>;
   onOpenAnalysis: () => void;
+  selectedTeam?: string | null; 
+  onSelectTeam?: (team: string) => void; 
 }
 
 const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
@@ -31,7 +33,9 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
   setClosingMethod,
   status,
   resultNumbers,
-  onOpenAnalysis
+  onOpenAnalysis,
+  selectedTeam,
+  onSelectTeam
 }) => {
   if (activeGame.id === 'federal') return null;
 

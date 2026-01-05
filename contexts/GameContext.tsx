@@ -42,8 +42,8 @@ interface GameContextType {
   savedBatches: SavedBetBatch[];
   showSavedGamesModal: boolean;
   setShowSavedGamesModal: (show: boolean) => void;
-  handleSaveBatch: (games: number[][], nextConcurso: number, notify: (msg: string, type: 'success') => void) => void;
-  handleSaveSingleGame: (game: number[], originalIndex: number, nextConcurso: number, notify: (msg: string, type: 'success') => void) => void;
+  handleSaveBatch: (games: number[][], nextConcurso: number, team: string | null | undefined, notify: (msg: string, type: 'success') => void) => void;
+  handleSaveSingleGame: (game: number[], originalIndex: number, nextConcurso: number, team: string | null | undefined, notify: (msg: string, type: 'success') => void) => void;
   // Assinaturas atualizadas para incluir o evento
   handleDeleteBatch: (e: React.MouseEvent, id: string) => void;
   handleDeleteGame: (e: React.MouseEvent, batchId: string, gameId: string) => void;

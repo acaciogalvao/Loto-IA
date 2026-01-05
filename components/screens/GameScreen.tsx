@@ -36,7 +36,7 @@ const GameScreen: React.FC = () => {
   const gameLogic = useGameLogic(activeGame, latestResult);
   const historyLogic = useHistoricalAnalysis(activeGame, latestResult);
 
-  const { selectedNumbers, generatedGames, totalGenerationCost } = gameLogic;
+  const { selectedNumbers, generatedGames, totalGenerationCost, selectedTeam } = gameLogic; // Extract selectedTeam
 
   // Derived State
   const resultNumbers = useMemo<Set<number>>(() => {
@@ -85,7 +85,8 @@ const GameScreen: React.FC = () => {
   const handleShareGeneratedList = async () => {
       if (generatedGames.length === 0) return;
       const header = `🎰 *LotoSmart AI* - ${activeGame.name}\nJogos Gerados:\n\n`;
-      const body = generatedGames.map((game, i) => `*Jogo ${i + 1}:* ${formatGameForShare(game)}`).join('\n');
+      let body = generatedGames.map((game, i) => `*Jogo ${i + 1}:* ${formatGameForShare(game)}`).join('\n');
+      if (selectedTeam) body += `\n\n♥ Time: ${selectedTeam}`;
       const footer = `\n\n🍀 Boa sorte!`;
       await shareTextContent(header + body + footer, `Jogos ${activeGame.name}`);
   };
@@ -93,7 +94,9 @@ const GameScreen: React.FC = () => {
   const handleShareSingleGame = async (e: React.MouseEvent, game: number[], index: number) => {
       e.stopPropagation();
       const line = formatGameForShare(game);
-      const text = `🎰 *LotoSmart AI* - ${activeGame.name}\n*Jogo ${index + 1}:* ${line}\n\n🍀 Boa sorte!`;
+      let text = `🎰 *LotoSmart AI* - ${activeGame.name}\n*Jogo ${index + 1}:* ${line}`;
+      if (selectedTeam) text += `\n♥ Time: ${selectedTeam}`;
+      text += `\n\n🍀 Boa sorte!`;
       await shareTextContent(text, `Jogo ${index + 1}`);
   };
 
@@ -129,6 +132,8 @@ const GameScreen: React.FC = () => {
           status={gameLogic.status}
           resultNumbers={resultNumbers}
           onOpenAnalysis={historyLogic.handleOpenHistoryAnalysis}
+          selectedTeam={selectedTeam} // NOVO
+          onSelectTeam={gameLogic.setSelectedTeam} // NOVO
         />
 
         <GeneratedGamesList 
@@ -138,13 +143,14 @@ const GameScreen: React.FC = () => {
           resultNumbers={resultNumbers}
           totalGenerationCost={totalGenerationCost}
           analysis={gameLogic.analysis}
-          onSaveBatch={() => handleSaveBatch(generatedGames, latestResult?.proximoConcurso || 0, notify)}
+          onSaveBatch={() => handleSaveBatch(generatedGames, latestResult?.proximoConcurso || 0, selectedTeam, notify)} // Pass selectedTeam
           onShareBatch={handleShareGeneratedList}
           onCopyGame={handleCopyGame}
-          onSaveSingleGame={(e, game, idx) => { e.stopPropagation(); handleSaveSingleGame(game, idx, latestResult?.proximoConcurso || 0, notify); }}
+          onSaveSingleGame={(e, game, idx) => { e.stopPropagation(); handleSaveSingleGame(game, idx, latestResult?.proximoConcurso || 0, selectedTeam, notify); }} // Pass selectedTeam
           onShareSingleGame={handleShareSingleGame}
           copiedGameIndex={null}
           onRemoveGames={gameLogic.removeGames}
+          selectedTeam={selectedTeam} // Pass selectedTeam
         />
       </div>
 

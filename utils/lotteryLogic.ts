@@ -40,9 +40,6 @@ export const isFixedPrize = (gameId: string, hits: number): boolean => {
         case 'lotofacil': 
             // 11, 12, 13 são fixos. 14 e 15 são rateio.
             return [11, 12, 13].includes(hits);
-        case 'timemania': 
-            // 3, 4, 5 são fixos. 6, 7 são rateio.
-            return [3, 4, 5].includes(hits);
         case 'diadesorte': 
             // 4, 5 são fixos. 6, 7 são rateio.
             return [4, 5].includes(hits);
@@ -601,10 +598,8 @@ export const GAME_YEAR_STARTS: Record<string, Record<number, number>> = {
   megasena: { 1996: 1, 2024: 2671, 2025: 2814 },
   quina: { 1994: 1, 2024: 6330, 2025: 6620 },
   lotomania: { 1999: 1, 2024: 2568, 2025: 2718 },
-  timemania: { 2008: 1, 2024: 2036, 2025: 2188 },
   diadesorte: { 2018: 1, 2024: 858, 2025: 1015 },
   duplasena: { 2001: 1, 2024: 2636, 2025: 2780 },
-  maismilionaria: { 2022: 1, 2024: 110, 2025: 190 },
   supersete: { 2020: 1, 2024: 492, 2025: 642 },
   federal: { 2015: 1, 2024: 5829, 2025: 5930 }
 };

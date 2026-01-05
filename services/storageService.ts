@@ -1,3 +1,4 @@
+
 import { SavedBetBatch, SavedGame } from '../types';
 
 const STORAGE_KEY = 'lotosmart_saved_bets';
@@ -10,7 +11,7 @@ const generateId = (): string => {
 };
 
 export const saveBets = (
-  gamesInput: { numbers: number[], gameNumber: number }[], 
+  gamesInput: { numbers: number[], gameNumber: number, team?: string }[], 
   targetConcurso: number,
   gameType: string = 'lotofacil' 
 ): SavedBetBatch[] => {
@@ -28,7 +29,8 @@ export const saveBets = (
 
   const seenInInput = new Set<string>();
   const distinctIncomingGames = incomingGames.filter(g => {
-      const signature = JSON.stringify(g.numbers);
+      // Signature includes numbers AND team for uniqueness
+      const signature = JSON.stringify(g.numbers) + (g.team || '');
       if (seenInInput.has(signature)) return false;
       seenInInput.add(signature);
       return true;
@@ -37,7 +39,8 @@ export const saveBets = (
   const newGamesToAddPayload: SavedGame[] = distinctIncomingGames.map((item) => ({
     id: generateId(),
     numbers: item.numbers,
-    gameNumber: item.gameNumber
+    gameNumber: item.gameNumber,
+    team: item.team // NOVO: Persist team
   }));
   
   const existingBatchIndex = existingBatches.findIndex(b => {
@@ -54,11 +57,11 @@ export const saveBets = (
     const currentBatch = existingBatches[existingBatchIndex];
     
     const existingSignatures = new Set(
-        currentBatch.games.map(g => JSON.stringify([...g.numbers].sort((a, b) => a - b)))
+        currentBatch.games.map(g => JSON.stringify([...g.numbers].sort((a, b) => a - b)) + (g.team || ''))
     );
 
     const uniqueGames = newGamesToAddPayload.filter(newGame => {
-        const signature = JSON.stringify(newGame.numbers); 
+        const signature = JSON.stringify(newGame.numbers) + (newGame.team || ''); 
         return !existingSignatures.has(signature);
     });
 
@@ -127,7 +130,7 @@ export const getSavedBets = (): SavedBetBatch[] => {
              
              if (!g.id || typeof g.gameNumber !== 'number') hasChanges = true;
 
-             return { id: gId, numbers: g.numbers, gameNumber: gNum } as SavedGame;
+             return { id: gId, numbers: g.numbers, gameNumber: gNum, team: g.team } as SavedGame;
           }
           if (Array.isArray(g)) {
             hasChanges = true;

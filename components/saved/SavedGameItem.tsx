@@ -35,18 +35,29 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
 
   const hits = highlightResult ? calculateHits(game.numbers) : 0;
   
+  // Verifica acerto do Time do Coração
+  const resultTeam = resultToUse && 'timeCoracao' in resultToUse ? resultToUse.timeCoracao : null;
+  const teamHit = highlightResult && game.team && resultTeam ? game.team.trim().toUpperCase() === resultTeam.trim().toUpperCase() : false;
+  
   // Busca o valor direto da API para essa faixa de acerto
+  // Em Timemania, o prêmio do Time do Coração geralmente é separado. 
+  // O helper calculatePrizeForHits pode precisar de ajuste se for somar, mas aqui trataremos como bônus.
   const prizeValue = (resultToUse && highlightResult) 
     ? calculatePrizeForHits(hits, resultToUse, gameConfig.id)
     : 0;
+
+  // Se acertou o time, soma o prêmio fixo (geralmente R$ 7,50 ou similar, mas vamos pegar da API se possível ou assumir win)
+  // A API Guidi retorna prêmios em listaRateioPremio. O Time do Coração costuma vir como uma faixa específica.
+  // Como simplificação, consideramos vitória se prizeValue > 0 ou teamHit.
   
   // Regra de vitória (Financeira ou por faixa mínima de acerto)
-  const isWinner = prizeValue > 0 || (
+  const isWinner = prizeValue > 0 || teamHit || (
       highlightResult && (
         (gameConfig.id === 'lotofacil' && hits >= 11) || 
         (gameConfig.id === 'megasena' && hits >= 4) ||
         (gameConfig.id === 'quina' && hits >= 2) ||
-        (gameConfig.id === 'supersete' && hits >= 3)
+        (gameConfig.id === 'supersete' && hits >= 3) ||
+        (gameConfig.id === 'timemania' && hits >= 3)
       )
   );
 
@@ -117,6 +128,16 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
               </button>
           </div>
 
+          {/* Time do Coração Salvo */}
+          {game.team && (
+              <div className={`flex items-center gap-2 pl-10 ${numbersOpacity}`}>
+                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 ${teamHit ? 'bg-yellow-500 text-slate-900 border-yellow-400 animate-pulse' : 'bg-slate-800 text-yellow-500 border-yellow-500/30'}`}>
+                       <span>♥</span> {game.team}
+                       {teamHit && <span>(ACERTOU!)</span>}
+                   </span>
+              </div>
+          )}
+
           {/* RODAPÉ DO ITEM: RESULTADOS E AÇÕES */}
           {highlightResult && (
               <div className="flex items-center justify-between pt-2 border-t border-slate-700/30 mt-1">
@@ -137,7 +158,7 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
                       <div className="flex flex-col items-end">
                           <span className="text-[8px] text-emerald-500/70 font-bold uppercase tracking-wider">Sua Premiação</span>
                           <span className="text-sm font-mono font-black text-emerald-400 drop-shadow-sm">
-                              {prizeValue > 0 ? formatCurrency(prizeValue) : '---'}
+                              {prizeValue > 0 ? formatCurrency(prizeValue) : (teamHit ? 'Time' : '---')}
                           </span>
                       </div>
                   )}

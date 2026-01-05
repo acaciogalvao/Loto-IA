@@ -126,31 +126,6 @@ export const GAMES: Record<string, GameConfig> = {
       { quantity: 50, price: 3.00 },
     ]
   },
-  timemania: {
-    id: 'timemania',
-    name: 'Timemania',
-    totalNumbers: 80,
-    minSelection: 10,
-    maxSelection: 10, 
-    defaultSelection: 10,
-    cols: 10,
-    color: 'yellow',
-    theme: {
-        primary: '#00ff48', // Verde Neon Oficial (Estilo Logomarca)
-        secondary: '#038c2a',
-        text: '#064e1a', // Texto escuro para contraste
-        background: '#f0fdf4',
-        accent: '#facc15' // Detalhes em amarelo
-    },
-    apiSlug: 'timemania',
-    startYear: 2008,
-    minPrize: 100000,
-    howToPlay: "Escolha 10 números entre os 80 e um Time do Coração.",
-    drawDays: "Terças, Quintas e Sábados, às 20h.",
-    priceTable: [
-      { quantity: 10, price: 3.50 },
-    ]
-  },
   diadesorte: {
     id: 'diadesorte',
     name: 'Dia de Sorte',
@@ -216,37 +191,6 @@ export const GAMES: Record<string, GameConfig> = {
       { quantity: 13, price: 4290.00 },
       { quantity: 14, price: 7507.50 },
       { quantity: 15, price: 12512.50 },
-    ]
-  },
-  maismilionaria: {
-    id: 'maismilionaria',
-    name: '+Milionária',
-    totalNumbers: 50,
-    minSelection: 6,
-    maxSelection: 12, 
-    defaultSelection: 6,
-    cols: 10,
-    color: 'cyan',
-    theme: {
-        primary: '#0d9488', // Teal 600 - Melhor contraste no cabeçalho e cartões
-        secondary: '#0f172a', // Slate 900 - Fundo escuro característico
-        text: '#ffffff', 
-        background: '#f0fdfa', 
-        accent: '#2dd4bf' // Teal 400
-    },
-    apiSlug: 'maismilionaria',
-    startYear: 2022,
-    minPrize: 10000000,
-    howToPlay: "Escolha números na Matriz 1 (1 a 50) e trevos na Matriz 2.",
-    drawDays: "Quartas e Sábados, às 20h.",
-    priceTable: [
-      { quantity: 6, price: 6.00 },
-      { quantity: 7, price: 42.00 },
-      { quantity: 8, price: 168.00 },
-      { quantity: 9, price: 504.00 },
-      { quantity: 10, price: 1260.00 },
-      { quantity: 11, price: 2772.00 },
-      { quantity: 12, price: 5544.00 },
     ]
   },
   supersete: {

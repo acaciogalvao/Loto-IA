@@ -17,7 +17,8 @@ interface GeneratedGamesListProps {
   onSaveSingleGame: (e: React.MouseEvent, game: number[], idx: number) => void;
   onShareSingleGame: (e: React.MouseEvent, game: number[], idx: number) => void;
   copiedGameIndex: number | null;
-  onRemoveGames?: (indices: number[]) => void; // NOVO: Callback para remover jogos
+  onRemoveGames?: (indices: number[]) => void;
+  selectedTeam?: string | null; // NOVO
 }
 
 const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
@@ -33,7 +34,8 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
   onSaveSingleGame,
   onShareSingleGame,
   copiedGameIndex,
-  onRemoveGames
+  onRemoveGames,
+  selectedTeam
 }) => {
   const [expandedGameStats, setExpandedGameStats] = useState<number | null>(null);
 
@@ -49,7 +51,12 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
 
   // --- ACTIONS: EXPORT & FILTER ---
   const handleExportTxt = () => {
-      const content = games.map((g, i) => `Jogo ${i+1}: ${g.map(n => String(n).padStart(2,'0')).join(' ')}`).join('\n');
+      const content = games.map((g, i) => {
+          let line = `Jogo ${i+1}: ${g.map(n => String(n).padStart(2,'0')).join(' ')}`;
+          if (selectedTeam) line += ` | Time: ${selectedTeam}`;
+          return line;
+      }).join('\n');
+      
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -163,6 +170,7 @@ const GeneratedGamesList: React.FC<GeneratedGamesListProps> = ({
                             isExpanded={isExpanded}
                             detailedStats={stats}
                             resultNumbers={resultNumbers}
+                            team={selectedTeam} // NOVO
                         />
                     </div>
                 );

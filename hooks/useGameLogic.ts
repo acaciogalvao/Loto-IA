@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useMemo } from 'react';
 import { GameConfig, AppStatus, AnalysisResult, TrendResult } from '../types';
 import { DEFAULT_GAME } from '../utils/gameConfig';
@@ -16,6 +15,7 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [trends, setTrends] = useState<TrendResult | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null); 
   
   // Configurações
   const [generationLimit, setGenerationLimit] = useState<number | string>(10); 
@@ -92,7 +92,8 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     setTrends(null);
     setLoadingProgress(0);
     setGameSize(activeGame.minSelection); 
-    setClosingMethod('smart_pattern'); 
+    setClosingMethod('smart_pattern');
+    setSelectedTeam(null); // Resetar time
   };
   
   // NOVO: Função para remover jogos específicos (para filtros)
@@ -351,6 +352,8 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     handleGameSizeChangeWithAutoSelect,
     handleGenerate,
     handleAiSuggestion,
-    importGame
+    importGame,
+    selectedTeam, 
+    setSelectedTeam 
   };
 };

@@ -20,6 +20,7 @@ interface LotteryTicketProps {
   onToggleStats?: (e: React.MouseEvent) => void;
   onShare?: (e: React.MouseEvent) => void; 
   resultNumbers?: Set<number>; 
+  team?: string | null; // NOVO: Prop para Time do Coração
 }
 
 const LotteryTicket: React.FC<LotteryTicketProps> = ({
@@ -36,7 +37,8 @@ const LotteryTicket: React.FC<LotteryTicketProps> = ({
   onAction,
   onToggleStats,
   onShare,
-  resultNumbers
+  resultNumbers,
+  team
 }) => {
   const displayNum = gameNumber || index + 1;
   const isFederal = activeGame.id === 'federal';
@@ -158,6 +160,7 @@ const LotteryTicket: React.FC<LotteryTicketProps> = ({
       else if (activeGame.id === 'quina') { if(hits>=2) isWin=true; if(hits===5) isJackpot=true; }
       else if (activeGame.id === 'lotomania') { if(hits>=15 || hits===0) isWin=true; if(hits===20) isJackpot=true; }
       else if (activeGame.id === 'supersete') { if(hits>=3) isWin=true; if(hits===7) isJackpot=true; }
+      else if (activeGame.id === 'timemania') { if(hits>=3) isWin=true; if(hits===7) isJackpot=true; }
 
       if (isJackpot) {
           return {
@@ -268,6 +271,14 @@ const LotteryTicket: React.FC<LotteryTicketProps> = ({
                 activeGame={activeGame} 
                 resultNumbers={resultNumbers} 
             />
+            
+            {/* DISPLAY TIME DO CORAÇÃO */}
+            {team && (
+                <div className="mt-2 text-[10px] font-bold text-yellow-400 flex items-center gap-1 bg-yellow-900/20 px-2 py-0.5 rounded border border-yellow-500/20 w-fit">
+                    <span>♥</span>
+                    <span className="tracking-wide uppercase">{team}</span>
+                </div>
+            )}
             
             {/* Stats Summary - Brighter Text for Visibility */}
             {!isExpanded && !isFederal && detailedStats && (

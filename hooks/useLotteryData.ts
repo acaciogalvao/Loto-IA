@@ -32,15 +32,9 @@ export const useLotteryData = (activeGame: GameConfig) => {
   const searchAndDisplayResult = async (concurso: number): Promise<boolean> => {
       setIsResultLoading(true);
       try {
-          // Reutiliza a lógica de busca por concurso, mas converte para LotteryResult se necessário
-          // Como fetchResultByConcurso retorna PastGameResult (que é compatível em estrutura visual básica),
-          // precisamos adaptar ou assumir compatibilidade.
-          // Na verdade, a API `fetchResultByConcurso` já usa `mapApiToResult` internamente,
-          // então podemos adaptar o tipo ou usar casting seguro pois LotteryResult estende a base necessária.
-          
           const result = await fetchResultByConcurso(activeGame.apiSlug, concurso);
           if (result) {
-              // Convertendo PastGameResult para LotteryResult (Preenchendo campos faltantes com defaults seguros)
+              // Convertendo PastGameResult para LotteryResult
               const fullResult: LotteryResult = {
                   ...result,
                   ganhadores15: result.premiacoes[0]?.ganhadores || 0, // Aproximação
@@ -50,7 +44,8 @@ export const useLotteryData = (activeGame: GameConfig) => {
                   valorAcumuladoProximoConcurso: 0,
                   valorAcumulado: result.valorAcumulado || 0,
                   valorAcumuladoEspecial: 0,
-                  acumulou: result.premiacoes[0]?.ganhadores === 0
+                  valorArrecadado: result.valorArrecadado || 0, // GARANTINDO O VALOR NA BUSCA
+                  acumulou: result.premiacoes.length > 0 ? result.premiacoes[0].ganhadores === 0 : false
               };
               setDisplayedResult(fullResult);
               return true;
@@ -68,7 +63,6 @@ export const useLotteryData = (activeGame: GameConfig) => {
       setDisplayedResult(latestResult);
   };
 
-  // Função para busca no Modal de Jogos Salvos (Mantido para compatibilidade)
   const handleManualSearch = async (): Promise<boolean> => {
       if (!manualSearchConcurso) return false;
       

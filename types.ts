@@ -62,6 +62,7 @@ export interface LotteryResult {
   concurso: number;
   data: string;
   dezenas: string[]; // API usually returns strings
+  trevos?: string[]; // NOVO: Trevos da +Milionária
   acumulou: boolean;
   ganhadores15: number;
   proximoConcurso: number;
@@ -70,7 +71,9 @@ export interface LotteryResult {
   valorAcumuladoProximoConcurso: number;
   valorAcumulado: number; // Novo campo para o acumulado atual
   valorAcumuladoEspecial: number; // Novo campo para acumulado especial (ex: Mega da Virada)
+  valorArrecadado: number; // NOVO: Arrecadação total
   premiacoes: PrizeEntry[]; // New field for detailed winners
+  timeCoracao?: string; // NOVO: Time do Coração para Timemania
 }
 
 export interface TrendResult {
@@ -92,10 +95,13 @@ export interface HistoricalAnalysis {
 export interface PastGameResult {
   concurso: number;
   dezenas: string[];
+  trevos?: string[]; 
   data: string;        
-  premiacoes: PrizeEntry[]; // Alterado para incluir todas as faixas
-  valorAcumulado?: number; // Adicionado para cálculos de simulação
-  valorEstimadoProximoConcurso?: number; // Adicionado para fallback
+  premiacoes: PrizeEntry[]; 
+  valorAcumulado?: number; 
+  valorEstimadoProximoConcurso?: number; 
+  timeCoracao?: string; 
+  valorArrecadado?: number; // ADICIONADO: Disponível no histórico também
 }
 
 export interface HistoryCheckResult {
@@ -103,18 +109,18 @@ export interface HistoryCheckResult {
   checkedCount: number;
 }
 
-// NOVA ESTRUTURA PARA JOGO INDIVIDUAL COM ID E NUMERAÇÃO
 export interface SavedGame {
   id: string;
   numbers: number[];
-  gameNumber: number; // Numeração persistente (Ex: 1 para "Jogo 1")
+  gameNumber: number; 
+  team?: string; 
 }
 
 export interface SavedBetBatch {
   id: string;
   createdAt: string;
   targetConcurso: number; 
-  gameType: string; // 'lotofacil', 'megasena' (NOVO CAMPO)
+  gameType: string; 
   games: SavedGame[]; 
 }
 
@@ -124,11 +130,11 @@ export interface DetailedStats {
   primos: number;
   soma: number;
   media: string;
-  desvioPadrao: string; // Novo campo
+  desvioPadrao: string; 
   multiplos3: number;
   fibonacci: number;
   moldura: number;
   centro: number;
   triangulares: number;
-  repetidos: number | string; // Pode ser string se não houver dados do anterior
+  repetidos: number | string; 
 }

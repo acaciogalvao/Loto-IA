@@ -107,21 +107,66 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                     >
                         {activeGame.id === 'lotofacil' && (
                             <>
-                              <option value={15}>15 Pontos (Prêmio Máximo)</option>
-                              <option value={14}>14 Pontos</option>
-                              <option value={13}>13 Pontos</option>
-                              <option value={12}>12 Pontos</option>
-                              <option value={11}>11 Pontos</option>
+                              <option value={15}>15 Acertos (Máximo)</option>
+                              <option value={14}>14 Acertos</option>
+                              <option value={13}>13 Acertos</option>
+                              <option value={12}>12 Acertos</option>
+                              <option value={11}>11 Acertos</option>
                             </>
                         )}
                         {activeGame.id === 'megasena' && (
                             <>
-                              <option value={6}>6 Pontos (Sena)</option>
-                              <option value={5}>5 Pontos (Quina)</option>
-                              <option value={4}>4 Pontos (Quadra)</option>
+                              <option value={6}>6 Acertos (Sena)</option>
+                              <option value={5}>5 Acertos (Quina)</option>
+                              <option value={4}>4 Acertos (Quadra)</option>
                             </>
                         )}
-                        {!['lotofacil', 'megasena'].includes(activeGame.id) && (
+                        {activeGame.id === 'quina' && (
+                            <>
+                              <option value={5}>5 Acertos (Quina)</option>
+                              <option value={4}>4 Acertos (Quadra)</option>
+                              <option value={3}>3 Acertos (Terno)</option>
+                              <option value={2}>2 Acertos (Duque)</option>
+                            </>
+                        )}
+                        {activeGame.id === 'lotomania' && (
+                            <>
+                              <option value={20}>20 Acertos</option>
+                              <option value={19}>19 Acertos</option>
+                              <option value={18}>18 Acertos</option>
+                              <option value={17}>17 Acertos</option>
+                              <option value={16}>16 Acertos</option>
+                              <option value={15}>15 Acertos</option>
+                              <option value={0}>0 Acertos</option>
+                            </>
+                        )}
+                        {activeGame.id === 'diadesorte' && (
+                            <>
+                              <option value={7}>7 Acertos</option>
+                              <option value={6}>6 Acertos</option>
+                              <option value={5}>5 Acertos</option>
+                              <option value={4}>4 Acertos</option>
+                            </>
+                        )}
+                        {activeGame.id === 'duplasena' && (
+                            <>
+                              <option value={6}>6 Acertos (Sena)</option>
+                              <option value={5}>5 Acertos (Quina)</option>
+                              <option value={4}>4 Acertos (Quadra)</option>
+                              <option value={3}>3 Acertos (Terno)</option>
+                            </>
+                        )}
+                        {activeGame.id === 'supersete' && (
+                            <>
+                              <option value={7}>7 Acertos</option>
+                              <option value={6}>6 Acertos</option>
+                              <option value={5}>5 Acertos</option>
+                              <option value={4}>4 Acertos</option>
+                              <option value={3}>3 Acertos</option>
+                            </>
+                        )}
+                        {/* Fallback genérico */}
+                        {!['lotofacil', 'megasena', 'quina', 'lotomania', 'diadesorte', 'duplasena', 'supersete'].includes(activeGame.id) && (
                             <option value={activeGame.minSelection}>{activeGame.minSelection} Acertos</option>
                         )}
                     </select>
@@ -143,7 +188,7 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                     Total filtrado em {analysisYear}: <strong className="text-slate-200">{analysisResults.length}</strong>
                 </span>
                 <span className={`font-bold ${filteredAnalysisResults.length > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                    {filteredAnalysisResults.length} sorteios com ganhadores de {analysisTargetPoints} pts
+                    {filteredAnalysisResults.length} sorteios encontrados
                 </span>
             </div>
         )}
@@ -173,7 +218,7 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                     ) : (
                         <>
                           <span className="text-2xl opacity-30">📭</span>
-                          <p>Nenhum bilhete premiado com <strong>{analysisTargetPoints} pontos</strong> encontrado em {analysisYear}.</p>
+                          <p>Nenhum resultado encontrado para este filtro em {analysisYear}.</p>
                         </>
                     )}
                 </div>
@@ -194,7 +239,9 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                                 </div>
                                 
                                 <div className={`px-3 py-1 rounded text-xs font-bold border flex flex-col items-end bg-emerald-900/20 border-emerald-500/30 text-emerald-400`}>
-                                    <span>{analysisTargetPoints} Pontos</span>
+                                    <span>
+                                        {`${analysisTargetPoints} Acertos`}
+                                    </span>
                                     <span className="text-[10px] text-emerald-200/70">
                                         {winners} ganhador(es)
                                     </span>
@@ -202,16 +249,18 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                             </div>
                             
                             <div className="p-3">
-                                <div className="flex flex-wrap gap-1 mb-2">
-                                    {game.dezenas.map(d => (
-                                        <span 
-                                            key={d} 
-                                            className="w-6 h-6 rounded-full text-white text-[10px] font-bold flex items-center justify-center border border-white/20"
-                                            style={{ backgroundColor: activeGame.theme.primary }}
-                                        >
-                                            {d}
-                                        </span>
-                                    ))}
+                                <div className="flex flex-col gap-2 mb-2">
+                                    <div className="flex flex-wrap gap-1">
+                                        {game.dezenas.map(d => (
+                                            <span 
+                                                key={d} 
+                                                className="w-6 h-6 rounded-full text-white text-[10px] font-bold flex items-center justify-center border border-white/20"
+                                                style={{ backgroundColor: activeGame.theme.primary }}
+                                            >
+                                                {d}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                                 
                                 {value > 0 && (

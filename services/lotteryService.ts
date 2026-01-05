@@ -8,6 +8,7 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
   const premios: PrizeEntry[] = (data.listaRateioPremio || []).map((p: any) => {
     let faixa = p.faixa; 
     
+    // Tenta extrair número da faixa da descrição se não vier no campo
     if (p.descricaoFaixa) {
         const match = p.descricaoFaixa.match(/(\d+)/);
         if (match) {
@@ -19,13 +20,14 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
         faixa,
         ganhadores: p.numeroDeGanhadores,
         valor: p.valorPremio,
+        bilhete: p.descricaoFaixa, 
         locais: (p.listaMunicipio || []).map((m: any) => ({
             cidade: m.municipio,
             uf: m.uf,
             ganhadores: 1 
         }))
     };
-  });
+  }).sort((a: PrizeEntry, b: PrizeEntry) => a.faixa - b.faixa); 
 
   return {
     concurso: data.numero,
@@ -39,6 +41,7 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
     valorAcumuladoProximoConcurso: data.valorAcumuladoProximoConcurso,
     valorAcumulado: data.valorAcumuladoConcurso_0_5 || 0,
     valorAcumuladoEspecial: data.valorAcumuladoConcursoEspecial || 0,
+    valorArrecadado: data.valorArrecadado || 0, // Mapeamento direto
     premiacoes: premios
   };
 };
@@ -67,7 +70,8 @@ export const fetchResultByConcurso = async (gameSlug: string, concurso: number):
         dezenas: result.dezenas,
         premiacoes: result.premiacoes,
         valorAcumulado: result.valorAcumulado,
-        valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso
+        valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso,
+        valorArrecadado: result.valorArrecadado
     };
   } catch (error) {
     console.error(`Erro ao buscar concurso ${concurso}:`, error);
@@ -75,21 +79,14 @@ export const fetchResultByConcurso = async (gameSlug: string, concurso: number):
   }
 };
 
-/**
- * Busca histórico completo com estratégia de Cache Inteligente (Delta Fetch).
- * 1. Carrega do LocalStorage.
- * 2. Identifica o último concurso salvo.
- * 3. Busca apenas os concursos faltantes até o latestConcurso.
- * 4. Salva e retorna tudo.
- */
+// CACHE KEY ATUALIZADA PARA V4
 export const getFullHistoryWithCache = async (
     gameSlug: string, 
     latestConcurso: number, 
     onProgress?: (percent: number) => void
 ): Promise<PastGameResult[]> => {
-    const CACHE_KEY = `lotosmart_history_v2_${gameSlug}`;
+    const CACHE_KEY = `lotosmart_history_v4_${gameSlug}`; // V4 para invalidar caches antigos sem arrecadação
     
-    // 1. Tenta carregar do cache
     let cachedHistory: PastGameResult[] = [];
     try {
         const stored = localStorage.getItem(CACHE_KEY);
@@ -100,10 +97,7 @@ export const getFullHistoryWithCache = async (
         console.warn("Erro ao ler cache de histórico", e);
     }
 
-    // Ordena por segurança (decrescente)
     cachedHistory.sort((a, b) => b.concurso - a.concurso);
-
-    // Identifica o gap
     const lastCachedConcurso = cachedHistory.length > 0 ? cachedHistory[0].concurso : 0;
     
     if (lastCachedConcurso >= latestConcurso) {
@@ -113,27 +107,16 @@ export const getFullHistoryWithCache = async (
 
     const startFetch = lastCachedConcurso + 1;
     const endFetch = latestConcurso;
-    const totalToFetch = endFetch - startFetch + 1;
-
-    // Se o gap for muito grande, limitamos para não bloquear o app (ex: 200 por vez)
-    // O usuário terá que rodar a análise algumas vezes para preencher tudo se estiver muito desatualizado
     const SAFE_LIMIT = 200;
     const effectiveEnd = Math.min(endFetch, startFetch + SAFE_LIMIT);
     
-    console.log(`Fetching history gap: ${startFetch} to ${effectiveEnd} (${totalToFetch} missing)`);
-
-    // Busca o Delta usando fetchResultsRange
     const newResults = await fetchResultsRange(gameSlug, startFetch, effectiveEnd, onProgress);
-    
-    // Merge
     const combinedHistory = [...newResults, ...cachedHistory].sort((a, b) => b.concurso - a.concurso);
     
-    // Salva no cache
     try {
         localStorage.setItem(CACHE_KEY, JSON.stringify(combinedHistory));
     } catch (e) {
         console.error("Storage Full - Could not cache full history", e);
-        // Se falhar o save, ainda retorna os dados em memória
     }
 
     return combinedHistory;
@@ -148,7 +131,6 @@ export const fetchResultsRange = async (
   const results: PastGameResult[] = [];
   const total = endConcurso - startConcurso + 1;
   let completed = 0;
-  
   const BATCH_SIZE = 5; 
   
   for (let i = startConcurso; i <= endConcurso; i += BATCH_SIZE) {
@@ -156,7 +138,6 @@ export const fetchResultsRange = async (
       for (let j = 0; j < BATCH_SIZE; j++) {
           const current = i + j;
           if (current > endConcurso) break;
-          
           batchPromises.push(fetchResultByConcurso(gameSlug, current));
       }
       
@@ -171,8 +152,6 @@ export const fetchResultsRange = async (
       
       completed += batchPromises.length;
       if (onProgress) onProgress(Math.floor((completed / total) * 100));
-      
-      // Delay para rate limiting
       await new Promise(r => setTimeout(r, 150));
   }
 
@@ -180,7 +159,6 @@ export const fetchResultsRange = async (
 };
 
 export const fetchPastResults = async (gameSlug: string, latestConcurso: number, limit: number): Promise<PastGameResult[]> => {
-    // Wrapper simples para fetchResultsRange reverso
     const start = Math.max(1, latestConcurso - limit + 1);
     return fetchResultsRange(gameSlug, start, latestConcurso);
 };

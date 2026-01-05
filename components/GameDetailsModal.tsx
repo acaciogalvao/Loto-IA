@@ -47,40 +47,37 @@ const GameDetailsModal: React.FC<GameDetailsModalProps> = ({ viewingGame, onClos
               )}
               <div className="p-2 bg-gray-50 border-t border-gray-200">
                   <div className="text-center text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Detalhamento da Premiação</div>
+                  
                   {viewingGame.premiacoes.map((p, idx) => {
-                      const totalPot = p.valor * p.ganhadores;
+                      let label = `${p.faixa} acertos`;
+                      if (p.faixa === 0) {
+                          label = 'Outros';
+                      }
+
                       return (
                       <div key={idx} className="flex justify-between items-start py-2 border-b border-gray-200 text-xs last:border-0 hover:bg-gray-100 transition-colors px-2">
                           <div className="flex flex-col">
                               <span className="font-bold text-slate-700 text-sm">
-                                {activeGame.id === 'federal' ? `${p.faixa}º Prêmio` : (p.faixa > 20 ? `${p.faixa} acertos` : p.faixa === 0 ? '0 acertos' : `${p.faixa} acertos`)}
+                                {activeGame.id === 'federal' ? `${p.faixa}º Prêmio` : label}
                               </span>
-                              {activeGame.id === 'federal' && p.bilhete && (
-                                  <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 rounded border border-blue-100 mt-1 w-fit">{p.bilhete}</span>
-                              )}
                           </div>
                           
                           <div className="text-right flex flex-col items-end">
-                              <div className="font-bold text-slate-800">{p.ganhadores} ganhador(es)</div>
-                              
-                              {/* Valor Individual (O que eu recebo) */}
-                              <div className="font-bold text-emerald-600 text-sm mt-0.5">
-                                  {p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2, style: 'currency', currency: 'BRL'})}
-                                  {p.ganhadores > 0 && <span className="text-[9px] text-emerald-600/70 ml-1 font-normal uppercase">(Você recebe)</span>}
+                              <div className="font-bold text-slate-800">
+                                  {p.ganhadores > 0 ? `${p.ganhadores} ganhador(es)` : 'Não houve acertador'}
                               </div>
-
-                              {/* Valor Total da Faixa (Se houver mais de 1 ganhador) */}
-                              {p.ganhadores > 1 && (
-                                  <div className="text-[9px] text-slate-400 mt-0.5 border-t border-gray-300/50 pt-0.5">
-                                      Total distribuído: {totalPot.toLocaleString('pt-BR', {minimumFractionDigits: 2, style: 'currency', currency: 'BRL'})}
-                                  </div>
-                              )}
+                              <div className="font-bold text-emerald-600 text-sm mt-0.5">
+                                  {p.valor > 0 
+                                    ? p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2, style: 'currency', currency: 'BRL'})
+                                    : '-'}
+                              </div>
                           </div>
                       </div>
                   )})}
               </div>
               <div className="p-4 bg-gray-100 border-t border-gray-200">
                   <div className="text-center text-xs text-gray-500 mb-2 font-bold">{viewingGame.data}</div>
+                  
                   {activeGame.id === 'federal' ? (
                        <div className="flex flex-col gap-1 w-full max-w-[200px] mx-auto">
                           {viewingGame.dezenas.map((bilhete, idx) => (
@@ -91,16 +88,18 @@ const GameDetailsModal: React.FC<GameDetailsModalProps> = ({ viewingGame, onClos
                           ))}
                        </div>
                   ) : (
-                      <div className="flex flex-wrap justify-center gap-1.5">
-                          {viewingGame.dezenas.map(d => (
-                              <span 
-                                key={d} 
-                                className="w-8 h-8 rounded-full text-sm flex items-center justify-center font-bold shadow-md"
-                                style={{ backgroundColor: activeGame.theme.primary, color: activeGame.theme.text }}
-                              >
-                                {d}
-                              </span>
-                          ))}
+                      <div className="flex flex-col gap-3">
+                          <div className="flex flex-wrap justify-center gap-1.5">
+                              {viewingGame.dezenas.map(d => (
+                                  <span 
+                                    key={d} 
+                                    className="w-8 h-8 rounded-full text-sm flex items-center justify-center font-bold shadow-md"
+                                    style={{ backgroundColor: activeGame.theme.primary, color: activeGame.theme.text }}
+                                  >
+                                    {d}
+                                  </span>
+                              ))}
+                          </div>
                       </div>
                   )}
               </div>

@@ -8,7 +8,24 @@ import { GAME_YEAR_STARTS, getYearsList } from '../utils/lotteryLogic';
 export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: LotteryResult | null) => {
   const [showHistoryAnalysisModal, setShowHistoryAnalysisModal] = useState(false);
   const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear());
-  const [analysisTargetPoints, setAnalysisTargetPoints] = useState<number>(activeGame.id === 'lotofacil' ? 15 : activeGame.minSelection);
+  
+  // Função para definir o padrão correto ao abrir
+  const getDefaultTargetPoints = (id: string) => {
+      switch(id) {
+          case 'lotofacil': return 15;
+          case 'megasena': return 6;
+          case 'quina': return 5;
+          case 'timemania': return 7; 
+          case 'lotomania': return 20;
+          case 'diadesorte': return 7;
+          case 'duplasena': return 6;
+          case 'supersete': return 7;
+          case 'maismilionaria': return 1; // Padrão Faixa 1 (6+2)
+          default: return activeGame.minSelection;
+      }
+  };
+
+  const [analysisTargetPoints, setAnalysisTargetPoints] = useState<number>(getDefaultTargetPoints(activeGame.id));
   const [analysisResults, setAnalysisResults] = useState<PastGameResult[]>([]);
   const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
@@ -22,12 +39,7 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       setShowHistoryAnalysisModal(true);
       setAnalysisResults([]);
       setAnalysisProgress(0);
-      
-      // Update default target points based on game
-      if (activeGame.id === 'lotofacil') setAnalysisTargetPoints(15);
-      else if (activeGame.id === 'megasena') setAnalysisTargetPoints(6);
-      else if (activeGame.id === 'quina') setAnalysisTargetPoints(5);
-      else setAnalysisTargetPoints(activeGame.minSelection);
+      setAnalysisTargetPoints(getDefaultTargetPoints(activeGame.id));
   };
 
   const handleRunHistoryAnalysis = async (notify: (msg: string, type: 'success' | 'error') => void) => {
@@ -60,25 +72,18 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       const startConcurso = yearMap ? yearMap[year] || 1 : 1;
       let endConcurso = 999999;
       
-      // Define o final do intervalo
       if (yearMap && yearMap[year + 1]) {
-          // Se sabemos onde começa o próximo ano, terminamos um antes
           endConcurso = yearMap[year + 1] - 1;
       } else if (latestResult) {
-          // Se é o ano atual ou futuro não mapeado, vai até o último sorteio disponível
           endConcurso = latestResult.concurso;
       } else {
-          // Fallback se não tiver latestResult (ex: erro de rede), tenta pegar um range seguro para anos recentes
-          // Mas sem latestResult, é difícil saber. Vamos chutar um range pequeno para não travar
           endConcurso = startConcurso + 200; 
       }
 
-      // Segurança: nunca tentar buscar além do último concurso real se disponível
       if (latestResult && endConcurso > latestResult.concurso) {
           endConcurso = latestResult.concurso;
       }
       
-      // Segurança: se o start for maior que o end (ex: ano futuro sem dados ainda), aborta
       if (startConcurso > endConcurso) {
           setIsAnalysisLoading(false);
           setAnalysisProgress(100);
@@ -87,12 +92,10 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       }
 
       try {
-          // Busca TODOS os resultados do intervalo (ano completo)
           const results = await fetchResultsRange(activeGame.apiSlug, startConcurso, endConcurso, (prog) => {
               setAnalysisProgress(prog);
           });
           
-          // Filtra estritamente pelo ano na string de data para garantir precisão
           const strictYearResults = results.filter(game => {
               if (!game.data) return false;
               return game.data.includes(`/${year}`);

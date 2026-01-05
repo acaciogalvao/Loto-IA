@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { SavedBetBatch, LotteryResult, GameConfig } from '../types';
 import { getSavedBets, saveBets, deleteBatch, deleteGame } from '../services/storageService';
@@ -49,6 +50,7 @@ export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResul
     else if (activeGame.id === 'quina') threshold = 2;
     else if (activeGame.id === 'lotomania') threshold = 15;
     else if (activeGame.id === 'supersete') threshold = 3;
+    else if (activeGame.id === 'timemania') threshold = 3;
     
     if (maxHits >= threshold && threshold > 0) {
       vibrate(500); 
@@ -58,12 +60,12 @@ export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResul
     return 0;
   };
 
-  const handleSaveBatch = (games: number[][], nextConcurso: number, notify: (msg: string, type: 'success') => void) => {
+  const handleSaveBatch = (games: number[][], nextConcurso: number, team: string | null | undefined, notify: (msg: string, type: 'success') => void) => {
     vibrate(20);
     if (games.length === 0) return;
     
     const updated = saveBets(
-        games.map((g, i) => ({ numbers: g, gameNumber: i + 1 })), 
+        games.map((g, i) => ({ numbers: g, gameNumber: i + 1, team: team || undefined })), 
         nextConcurso, 
         activeGame.id
     );
@@ -72,10 +74,10 @@ export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResul
     notify(`${games.length} jogos salvos com sucesso!`, 'success');
   };
 
-  const handleSaveSingleGame = (game: number[], originalIndex: number, nextConcurso: number, notify: (msg: string, type: 'success') => void) => {
+  const handleSaveSingleGame = (game: number[], originalIndex: number, nextConcurso: number, team: string | null | undefined, notify: (msg: string, type: 'success') => void) => {
     vibrate(10);
     const updated = saveBets(
-        [{ numbers: game, gameNumber: originalIndex + 1 }], 
+        [{ numbers: game, gameNumber: originalIndex + 1, team: team || undefined }], 
         nextConcurso, 
         activeGame.id
     );

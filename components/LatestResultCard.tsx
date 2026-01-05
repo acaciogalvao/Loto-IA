@@ -26,7 +26,8 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
 }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchConcurso, setSearchConcurso] = useState('');
-  const [showPrizes, setShowPrizes] = useState(false); // Toggle para premiação em telas pequenas
+  // false = Expandido (conteúdo visível), true = Recolhido (só cabeçalho)
+  const [isMinimized, setIsMinimized] = useState(false);
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -34,7 +35,10 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
       const num = parseInt(searchConcurso, 10);
       if (!isNaN(num)) {
           const success = await onSearch(num);
-          if (success) setIsSearching(false);
+          if (success) {
+              setIsSearching(false);
+              setSearchConcurso('');
+          }
       }
   };
 
@@ -46,7 +50,7 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
 
   if (isLoading) {
     return (
-      <div className="relative overflow-hidden rounded-2xl h-[240px] shadow-2xl bg-slate-800 border border-slate-700">
+      <div className="relative overflow-hidden rounded-2xl h-[200px] shadow-2xl bg-slate-800 border border-slate-700">
          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 translate-x-[-100%] animate-[shimmer_1.5s_infinite]"></div>
          <div className="p-5 flex flex-col h-full justify-between relative z-10">
             <div className="flex justify-between items-center">
@@ -59,13 +63,18 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
             <div className="flex gap-2 flex-wrap justify-center py-4">
                {[...Array(5)].map((_,i) => <div key={i} className="w-10 h-10 rounded-full bg-slate-700 animate-pulse"></div>)}
             </div>
-            <div className="h-16 bg-slate-700/30 rounded-xl w-full border border-slate-700"></div>
          </div>
       </div>
     );
   }
 
   if (!result) return null;
+
+  // Ordenação da premiação: Federal (Ascendente 1..5), Outros (Descendente: Maior prêmio primeiro)
+  const displayPrizes = [...(result.premiacoes || [])];
+  if (activeGame.id !== 'federal') {
+      displayPrizes.reverse();
+  }
 
   return (
     <div 
@@ -74,22 +83,23 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
         background: `linear-gradient(145deg, ${activeGame.theme.primary} 0%, ${activeGame.theme.secondary} 100%)`,
       }}
     >
-      {/* Decorative Elements */}
       <div className="absolute top-[-50px] right-[-50px] w-48 h-48 rounded-full bg-white opacity-5 blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-[-20px] left-[-20px] w-32 h-32 rounded-full bg-black opacity-10 blur-2xl pointer-events-none"></div>
 
       <div className="relative z-10 p-5">
-        {/* Header: Concurso Info & Search */}
-        <div className="flex justify-between items-start mb-6">
-          <div className="flex-1">
+        {/* HEADER PRINCIPAL */}
+        <div className="flex justify-between items-start gap-4 mb-6">
+          
+          {/* Lado Esquerdo: Info do Concurso e Busca */}
+          <div className="flex-1 min-w-0">
              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 truncate">
                     {isLatest ? 'Resultado Oficial' : 'Resultado Passado'}
                 </span>
                 {!isLatest && (
                     <button 
                         onClick={onReset}
-                        className="bg-white/20 hover:bg-white/30 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border border-white/20 transition-colors"
+                        className="bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded text-[9px] font-bold uppercase border border-white/20 transition-colors whitespace-nowrap"
                     >
                         Voltar ao Atual
                     </button>
@@ -97,39 +107,44 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
              </div>
              
              {isSearching ? (
-                 <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 mt-1 animate-fade-in">
+                 <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 mt-1 animate-fade-in w-full max-w-[200px]">
                      <input 
                         autoFocus
                         type="number"
-                        placeholder="Nº"
+                        placeholder="Nº Conc."
                         value={searchConcurso}
                         onChange={(e) => setSearchConcurso(e.target.value)}
-                        className="w-20 bg-black/20 border border-white/30 rounded px-2 py-0.5 text-lg font-bold font-mono outline-none focus:bg-black/40 transition-colors"
+                        className="w-full bg-black/30 border border-white/30 rounded px-2 py-1 text-base font-bold font-mono outline-none focus:bg-black/50 transition-colors text-white placeholder-white/30"
                      />
-                     <button type="submit" className="bg-white text-slate-900 px-2 py-1 rounded font-bold text-xs hover:bg-slate-200">Ir</button>
-                     <button type="button" onClick={() => setIsSearching(false)} className="text-white/60 hover:text-white px-1">✕</button>
+                     <button type="submit" className="bg-white text-slate-900 px-3 py-1 rounded font-bold text-xs hover:bg-slate-200">Ir</button>
+                     <button type="button" onClick={() => setIsSearching(false)} className="text-white/60 hover:text-white px-1 font-bold">✕</button>
                  </form>
              ) : (
-                <div className="flex items-baseline gap-2 group/search cursor-pointer" onClick={() => setIsSearching(true)}>
-                    <span className="text-2xl font-black tracking-tight">#{result.concurso}</span>
-                    <span className="text-xs opacity-70 font-medium">{result.data}</span>
-                    <span className="opacity-0 group-hover/search:opacity-100 transition-opacity text-xs bg-white/20 rounded-full px-1.5 py-0.5">🔍</span>
+                <div className="flex items-baseline gap-2 group/search cursor-pointer" onClick={() => setIsSearching(true)} title="Clique para buscar um concurso">
+                    <span className="text-3xl font-black tracking-tighter drop-shadow-md">#{result.concurso}</span>
+                    <span className="text-xs opacity-80 font-medium hidden sm:inline-block">{result.data}</span>
+                    <span className="opacity-0 group-hover/search:opacity-100 transition-opacity text-xs bg-white/20 rounded-full w-5 h-5 flex items-center justify-center">🔍</span>
                 </div>
              )}
+             {/* Data visível em mobile se não estiver buscando */}
+             {!isSearching && <div className="text-xs opacity-70 font-medium sm:hidden mt-0.5">{result.data}</div>}
           </div>
 
-          <div className="text-right flex flex-col items-end gap-2">
-             <button 
-                  onClick={onRefresh} 
-                  disabled={isLoading}
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all active:scale-95 backdrop-blur-sm border border-white/10"
-                  title="Atualizar Resultado"
-                >
-                   <svg className={`w-4 h-4 text-white ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            </button>
+          {/* Lado Direito: Botões de Ação e Status */}
+          <div className="flex flex-col items-end gap-2 shrink-0">
+             <div className="flex items-center gap-2">
+                 <button 
+                      onClick={onRefresh} 
+                      disabled={isLoading}
+                      className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all active:scale-95 backdrop-blur-sm border border-white/10"
+                      title="Atualizar Resultado"
+                    >
+                       <svg className={`w-4 h-4 text-white ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+             </div>
              
              {result.acumulou ? (
-                 <span className="text-[10px] font-black bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded shadow-lg transform -rotate-2 uppercase tracking-wide">
+                 <span className="text-[10px] font-black bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded shadow-lg uppercase tracking-wide transform hover:scale-105 transition-transform cursor-help" title="Prêmio Acumulado!">
                     Acumulou!
                  </span>
              ) : (
@@ -140,101 +155,137 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
           </div>
         </div>
 
-        {/* Balls / Results Display */}
-        <div className="mb-6">
-            {activeGame.id === 'federal' ? (
-                <div className="space-y-1.5 bg-black/20 p-3 rounded-xl border border-white/10 backdrop-blur-sm">
-                    {result.dezenas.slice(0, 5).map((bilhete, idx) => (
-                        <div key={idx} className="flex justify-between items-center border-b border-white/5 last:border-0 pb-1 last:pb-0">
-                             <span className="text-[9px] uppercase font-bold opacity-60">{idx + 1}º Prêmio</span>
-                             <span className="font-mono text-base font-bold tracking-widest text-emerald-300 drop-shadow-sm">{bilhete}</span>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
-                    {result.dezenas.map((n, idx) => (
-                        <div 
-                            key={idx}
-                            className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-900 font-black text-base shadow-[0_4px_10px_rgba(0,0,0,0.3)] border-2 border-white/50"
+        <div className="animate-fade-in space-y-6">
+            
+            {/* BOLAS DO RESULTADO (SEMPRE VISÍVEIS) */}
+            <div>
+                {activeGame.id === 'federal' ? (
+                    <div className="space-y-1.5 bg-black/20 p-3 rounded-xl border border-white/10 backdrop-blur-sm">
+                        {result.dezenas.slice(0, 5).map((bilhete, idx) => (
+                            <div key={idx} className="flex justify-between items-center border-b border-white/5 last:border-0 pb-1 last:pb-0">
+                                    <span className="text-[9px] uppercase font-bold opacity-60">{idx + 1}º Prêmio</span>
+                                    <span className="font-mono text-base font-bold tracking-widest text-emerald-300 drop-shadow-sm">{bilhete}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+                        {result.dezenas.map((n, idx) => (
+                            <div 
+                                key={idx}
+                                className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-900 font-black text-base shadow-lg border-2 border-white/50"
+                            >
+                                {activeGame.id === 'supersete' ? parseInt(n, 10) % 10 : n}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* BOTÃO DE AÇÃO RÁPIDA (SEMPRE VISÍVEL) */}
+            {activeGame.id !== 'federal' && (
+                <div className="flex justify-end -mt-2">
+                        <button 
+                        onClick={handleImport}
+                        className="flex items-center gap-1.5 bg-white text-slate-900 px-4 py-2 rounded-lg text-xs font-bold shadow-lg hover:bg-slate-100 transition-colors active:scale-95"
                         >
-                            {activeGame.id === 'supersete' ? parseInt(n, 10) % 10 : n}
+                        <span>⚡</span> Usar estes números
+                        </button>
+                </div>
+            )}
+            
+            {/* LISTA DE PREMIAÇÃO (CONTAINER) */}
+            {displayPrizes.length > 0 && activeGame.id !== 'federal' && (
+                <div className="bg-slate-900/90 rounded-xl border border-white/10 shadow-xl relative overflow-hidden animate-slide-down">
+                        {/* CABEÇALHO DO CARD DE PREMIAÇÃO COM TOGGLE */}
+                        <div 
+                            onClick={() => setIsMinimized(!isMinimized)}
+                            className={`p-4 flex justify-between items-center cursor-pointer hover:bg-white/5 transition-colors ${!isMinimized ? 'border-b border-white/5' : ''}`}
+                        >
+                             <h3 
+                                className="text-lg font-bold tracking-tight flex items-center gap-2" 
+                                style={{ color: activeGame.theme.primary }}
+                             >
+                                <span>🏆</span> Premiação
+                             </h3>
+                             <button className="w-6 h-6 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-300">
+                                {isMinimized ? (
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                ) : (
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                )}
+                             </button>
                         </div>
-                    ))}
+                        
+                        {/* CONTEÚDO EXPANSÍVEL */}
+                        {!isMinimized && (
+                            <div className="animate-fade-in">
+                                <div className="space-y-4 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar p-5 pt-4">
+                                    {displayPrizes.map((p, idx) => {
+                                            let label = `${p.faixa} acertos`;
+                                            if (p.faixa === 0) label = 'Outros';
+
+                                            return (
+                                                <div key={idx} className="flex flex-col border-b border-slate-800 pb-2 last:border-0 last:pb-0">
+                                                    <div className="flex justify-between items-baseline mb-0.5">
+                                                        <div className="text-sm font-bold text-slate-200">
+                                                            {label}
+                                                        </div>
+                                                        {p.ganhadores > 0 && (
+                                                        <div className="text-xs font-bold text-emerald-400 font-mono">
+                                                            {p.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                        </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-[11px] font-medium text-slate-500">
+                                                        {p.ganhadores > 0 
+                                                        ? `${p.ganhadores} aposta(s) ganhadora(s)`
+                                                        : 'Não houve acertador'
+                                                        }
+                                                    </div>
+                                                </div>
+                                            );
+                                    })}
+                                </div>
+
+                                {/* ARRECADAÇÃO TOTAL */}
+                                <div className="border-t border-slate-700 bg-black/20 px-5 py-3">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Arrecadação Total
+                                        </h3>
+                                        <div className="text-sm font-bold text-slate-200 font-mono">
+                                            {result.valorArrecadado > 0 
+                                            ? result.valorArrecadado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                            : 'Não divulgado'
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                </div>
+            )}
+
+            {/* PRÓXIMO SORTEIO (SEMPRE VISÍVEL SE FOR O ÚLTIMO) */}
+            {isLatest && result.dataProximoConcurso && (
+                <div className="mt-4 bg-black/30 backdrop-blur-md rounded-xl p-0.5 border border-white/10 relative overflow-hidden">
+                        <div className="px-4 py-3 flex justify-between items-center border-b border-white/5 bg-white/5">
+                            <div className="flex flex-col">
+                                <span className="text-[9px] uppercase font-bold opacity-60 tracking-wider">Estimativa Próximo Prêmio</span>
+                                <span className="text-xl font-bold font-mono tracking-tight text-emerald-300 drop-shadow-md">
+                                {result.valorEstimadoProximoConcurso > 0 
+                                    ? result.valorEstimadoProximoConcurso.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                    : 'Aguardando...'}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="p-3">
+                        <CountdownTimer targetDateStr={result.dataProximoConcurso} />
+                        </div>
                 </div>
             )}
         </div>
-        
-        {/* TABELA DE PREMIAÇÃO (RATEIO) */}
-        {result.premiacoes && result.premiacoes.length > 0 && activeGame.id !== 'federal' && (
-            <div className="mb-6 bg-black/20 rounded-xl overflow-hidden border border-white/10 backdrop-blur-sm">
-                 <button 
-                    onClick={() => setShowPrizes(!showPrizes)}
-                    className="w-full flex justify-between items-center px-4 py-2 bg-black/20 hover:bg-black/30 transition-colors text-xs font-bold uppercase tracking-widest text-white/80"
-                 >
-                     <span>🏆 Premiação Detalhada</span>
-                     <span>{showPrizes ? '▲' : '▼'}</span>
-                 </button>
-                 
-                 {showPrizes && (
-                     <div className="divide-y divide-white/5 animate-slide-down">
-                        <div className="grid grid-cols-12 px-4 py-2 bg-white/5 text-[9px] font-black uppercase text-white/50 tracking-wider">
-                            <div className="col-span-4">Faixa</div>
-                            <div className="col-span-4 text-center">Ganhadores</div>
-                            <div className="col-span-4 text-right">Prêmio</div>
-                        </div>
-                        {result.premiacoes.map((p, idx) => {
-                             const isAccumulated = p.ganhadores === 0;
-                             return (
-                                 <div key={idx} className={`grid grid-cols-12 px-4 py-2 text-xs items-center ${isAccumulated ? 'opacity-60' : ''}`}>
-                                     <div className="col-span-4 font-bold">
-                                         {p.faixa === 0 ? '0 acertos' : `${p.faixa} acertos`}
-                                     </div>
-                                     <div className="col-span-4 text-center text-white/80">
-                                         {p.ganhadores > 0 ? p.ganhadores : '-'}
-                                     </div>
-                                     <div className="col-span-4 text-right font-mono font-bold text-emerald-300">
-                                         {p.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                     </div>
-                                 </div>
-                             );
-                        })}
-                     </div>
-                 )}
-            </div>
-        )}
-
-        {/* Action Bar (Copy to Generator) */}
-        {activeGame.id !== 'federal' && (
-            <div className="mb-4 flex justify-end">
-                 <button 
-                    onClick={handleImport}
-                    className="flex items-center gap-1.5 bg-white text-slate-900 px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-slate-100 transition-colors active:scale-95"
-                 >
-                    <span>⚡</span> Usar para Gerar
-                 </button>
-            </div>
-        )}
-
-        {/* Next Draw & Timer Section (Only if latest) */}
-        {isLatest && result.dataProximoConcurso && (
-            <div className="bg-black/20 backdrop-blur-md rounded-xl p-0.5 border border-white/10 relative overflow-hidden">
-                 <div className="px-4 py-3 flex justify-between items-center border-b border-white/5">
-                     <div className="flex flex-col">
-                         <span className="text-[9px] uppercase font-bold opacity-60 tracking-wider">Estimativa Prêmio</span>
-                         <span className="text-xl font-bold font-mono tracking-tight text-emerald-300 drop-shadow-md">
-                            {result.valorEstimadoProximoConcurso > 0 
-                                ? result.valorEstimadoProximoConcurso.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                : 'Aguardando...'}
-                         </span>
-                     </div>
-                 </div>
-                 <div className="p-3 bg-black/20">
-                    <CountdownTimer targetDateStr={result.dataProximoConcurso} />
-                 </div>
-            </div>
-        )}
-
       </div>
     </div>
   );
