@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import NumberBall from './NumberBall';
 import { GameConfig, AppStatus } from '../types';
+import { getStats, calculateDetailedStats } from '../utils/lotteryLogic';
 
 interface NumberSelectionPanelProps {
   activeGame: GameConfig;
@@ -15,7 +16,7 @@ interface NumberSelectionPanelProps {
   setClosingMethod: (method: 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode') => void;
   status: AppStatus;
   resultNumbers?: Set<number>;
-  onOpenAnalysis: () => void; // Added prop
+  onOpenAnalysis: () => void;
 }
 
 const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
@@ -51,6 +52,14 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
   }, [activeGame.id, activeGame.totalNumbers]);
 
   const selectionCount = selectedNumbers.size;
+
+  // Real-time Stats Calculation
+  const realTimeStats = useMemo(() => {
+      if (selectionCount === 0) return null;
+      const nums = (Array.from(selectedNumbers) as number[]).sort((a,b) => a-b);
+      // We use calculateDetailedStats (reusing existing logic) but pass undefined for previousGame
+      return calculateDetailedStats(nums, undefined, activeGame);
+  }, [selectedNumbers, activeGame, selectionCount]);
 
   const methods = [
       { id: 'smart_pattern', label: 'Padrão Ouro' },
@@ -130,6 +139,22 @@ const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
               </div>
           </div>
       </div>
+
+      {/* Real-time Stats Dashboard */}
+      {realTimeStats && (
+        <div className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-[10px] font-mono animate-fade-in backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+                <span className="text-slate-400">Pares: <strong className="text-white">{realTimeStats.pares}</strong></span>
+                <span className="w-px h-3 bg-slate-700"></span>
+                <span className="text-slate-400">Ímpares: <strong className="text-white">{realTimeStats.impares}</strong></span>
+            </div>
+            <div className="flex items-center gap-2">
+                <span className="text-slate-400">Primos: <strong className="text-purple-300">{realTimeStats.primos}</strong></span>
+                <span className="w-px h-3 bg-slate-700"></span>
+                <span className="text-slate-400">Soma: <strong className={realTimeStats.soma > 220 ? 'text-red-400' : 'text-emerald-400'}>{realTimeStats.soma}</strong></span>
+            </div>
+        </div>
+      )}
 
       {/* O VOLANTE FÍSICO SIMULADO */}
       <div className="relative isolate">

@@ -290,7 +290,7 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     }, 250);
 
     try {
-        const currentSelArray = Array.from(selectedNumbers);
+        const currentSelArray = Array.from(selectedNumbers) as number[];
         const suggestion = await getAiSuggestions(
             activeGame.name, 
             activeGame.minSelection, 

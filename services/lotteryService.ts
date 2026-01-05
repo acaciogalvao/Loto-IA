@@ -6,9 +6,6 @@ const API_URL = 'https://api.guidi.dev.br/loteria';
 const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
   // Mapping logic for Guidi API
   const premios: PrizeEntry[] = (data.listaRateioPremio || []).map((p: any) => {
-    // CORREÇÃO CRÍTICA: A API pode retornar 'faixa' como índice (1, 2, 3...) 
-    // mas precisamos do número de acertos (15, 14, 13...).
-    // Priorizamos extrair o número da descrição (ex: "15 acertos").
     let faixa = p.faixa; 
     
     if (p.descricaoFaixa) {
@@ -78,13 +75,68 @@ export const fetchResultByConcurso = async (gameSlug: string, concurso: number):
   }
 };
 
+/**
+ * Busca histórico completo com estratégia de Cache Inteligente (Delta Fetch).
+ * 1. Carrega do LocalStorage.
+ * 2. Identifica o último concurso salvo.
+ * 3. Busca apenas os concursos faltantes até o latestConcurso.
+ * 4. Salva e retorna tudo.
+ */
 export const getFullHistoryWithCache = async (
     gameSlug: string, 
     latestConcurso: number, 
     onProgress?: (percent: number) => void
 ): Promise<PastGameResult[]> => {
-    if (onProgress) onProgress(100);
-    return [];
+    const CACHE_KEY = `lotosmart_history_v2_${gameSlug}`;
+    
+    // 1. Tenta carregar do cache
+    let cachedHistory: PastGameResult[] = [];
+    try {
+        const stored = localStorage.getItem(CACHE_KEY);
+        if (stored) {
+            cachedHistory = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn("Erro ao ler cache de histórico", e);
+    }
+
+    // Ordena por segurança (decrescente)
+    cachedHistory.sort((a, b) => b.concurso - a.concurso);
+
+    // Identifica o gap
+    const lastCachedConcurso = cachedHistory.length > 0 ? cachedHistory[0].concurso : 0;
+    
+    if (lastCachedConcurso >= latestConcurso) {
+        if(onProgress) onProgress(100);
+        return cachedHistory;
+    }
+
+    const startFetch = lastCachedConcurso + 1;
+    const endFetch = latestConcurso;
+    const totalToFetch = endFetch - startFetch + 1;
+
+    // Se o gap for muito grande, limitamos para não bloquear o app (ex: 200 por vez)
+    // O usuário terá que rodar a análise algumas vezes para preencher tudo se estiver muito desatualizado
+    const SAFE_LIMIT = 200;
+    const effectiveEnd = Math.min(endFetch, startFetch + SAFE_LIMIT);
+    
+    console.log(`Fetching history gap: ${startFetch} to ${effectiveEnd} (${totalToFetch} missing)`);
+
+    // Busca o Delta usando fetchResultsRange
+    const newResults = await fetchResultsRange(gameSlug, startFetch, effectiveEnd, onProgress);
+    
+    // Merge
+    const combinedHistory = [...newResults, ...cachedHistory].sort((a, b) => b.concurso - a.concurso);
+    
+    // Salva no cache
+    try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(combinedHistory));
+    } catch (e) {
+        console.error("Storage Full - Could not cache full history", e);
+        // Se falhar o save, ainda retorna os dados em memória
+    }
+
+    return combinedHistory;
 };
 
 export const fetchResultsRange = async (
@@ -97,7 +149,6 @@ export const fetchResultsRange = async (
   const total = endConcurso - startConcurso + 1;
   let completed = 0;
   
-  // Buscar em lotes para não sobrecarregar a API
   const BATCH_SIZE = 5; 
   
   for (let i = startConcurso; i <= endConcurso; i += BATCH_SIZE) {
@@ -121,14 +172,15 @@ export const fetchResultsRange = async (
       completed += batchPromises.length;
       if (onProgress) onProgress(Math.floor((completed / total) * 100));
       
-      // Pequeno delay para evitar rate limiting severo
-      await new Promise(r => setTimeout(r, 100));
+      // Delay para rate limiting
+      await new Promise(r => setTimeout(r, 150));
   }
 
-  // Ordenar decrescente (mais recente primeiro)
   return results.sort((a, b) => b.concurso - a.concurso);
 };
 
 export const fetchPastResults = async (gameSlug: string, latestConcurso: number, limit: number): Promise<PastGameResult[]> => {
-  return [];
+    // Wrapper simples para fetchResultsRange reverso
+    const start = Math.max(1, latestConcurso - limit + 1);
+    return fetchResultsRange(gameSlug, start, latestConcurso);
 };

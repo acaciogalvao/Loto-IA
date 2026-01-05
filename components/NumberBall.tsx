@@ -29,7 +29,7 @@ const NumberBall: React.FC<NumberBallProps> = ({
     : "w-full h-9 sm:h-10 text-sm font-bold";
 
   // Base styles
-  const baseClasses = `${baseSize} rounded-[4px] flex items-center justify-center transition-all duration-150 border select-none`;
+  const baseClasses = `${baseSize} rounded-[4px] flex items-center justify-center transition-all duration-150 border select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900`;
   
   // Dynamic styles based on theme
   const style: React.CSSProperties = {};
@@ -43,13 +43,22 @@ const NumberBall: React.FC<NumberBallProps> = ({
   } else {
       style.backgroundColor = 'white';
       style.color = '#334155'; // slate-700
-      style.borderColor = activeGame.theme.primary; // Border is theme color
+      style.borderColor = activeGame.theme.primary; 
   }
+
+  // Keyboard accessibility handler
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (!disabled) onClick(number);
+    }
+  };
 
   if (disabled) {
       return (
         <button
           disabled
+          aria-label={`Número ${label || number}, desabilitado`}
           className={`${baseClasses} opacity-30 cursor-not-allowed grayscale bg-slate-100 border-slate-200 text-slate-400`}
         >
           {label !== undefined ? label : number.toString().padStart(2, '0')}
@@ -60,11 +69,15 @@ const NumberBall: React.FC<NumberBallProps> = ({
   // Result highlighting overrides
   const recentResultClasses = isRecentResult 
     ? "ring-2 ring-yellow-400 ring-offset-1 z-10 font-black" 
-    : "";
+    : isSelected ? `focus:ring-${activeGame.color}-500` : `focus:ring-${activeGame.color}-400`;
 
   return (
     <button
       onClick={() => onClick(number)}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      aria-label={`Número ${label || number}, ${isSelected ? 'selecionado' : 'não selecionado'}`}
+      aria-pressed={isSelected}
       className={`${baseClasses} ${!isSelected ? 'hover:bg-slate-50' : ''} ${recentResultClasses} active:scale-90`}
       style={style}
     >
