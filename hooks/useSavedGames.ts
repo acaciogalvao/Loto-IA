@@ -1,13 +1,20 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SavedBetBatch, LotteryResult, GameConfig } from '../types';
 import { getSavedBets, saveBets, deleteBatch, deleteGame } from '../services/storageService';
 import { vibrate } from '../utils/uiUtils';
 import { getResultNumbersAsSet } from '../utils/lotteryLogic';
 
-export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResult | null) => {
+export const useSavedGames = (
+    activeGame: GameConfig, 
+    latestResult: LotteryResult | null,
+    onWinDetected?: (hits: number) => void
+) => {
   const [savedBatches, setSavedBatches] = useState<SavedBetBatch[]>([]);
   const [showSavedGamesModal, setShowSavedGamesModal] = useState(false);
+  
+  // Controle para evitar reabrir o modal repetidamente para o mesmo resultado
+  const checkedResultsRef = useRef<Set<string>>(new Set());
   
   // Confirmação de deleção
   const [deleteConfirmBatchId, setDeleteConfirmBatchId] = useState<string | null>(null); 
@@ -27,6 +34,12 @@ export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResul
 
   const checkAutomaticWins = (result: LotteryResult, batches: SavedBetBatch[]) => {
     if (activeGame.id === 'federal') return;
+
+    // Chave única para este concurso deste jogo
+    const checkKey = `${activeGame.id}-${result.concurso}`;
+    
+    // Se já conferimos e notificamos este concurso, não faz nada
+    if (checkedResultsRef.current.has(checkKey)) return;
 
     let maxHits = 0;
     const relevantBatches = batches.filter(b => b.gameType === activeGame.id || (!b.gameType && activeGame.id === 'lotofacil'));
@@ -53,8 +66,24 @@ export const useSavedGames = (activeGame: GameConfig, latestResult: LotteryResul
     else if (activeGame.id === 'timemania') threshold = 3;
     
     if (maxHits >= threshold && threshold > 0) {
-      vibrate(500); 
-      setShowSavedGamesModal(true);
+      // Marca como conferido para não repetir
+      checkedResultsRef.current.add(checkKey);
+
+      // Vibração de Celebração (Padrão pulsante)
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([100, 50, 100, 50, 300]); 
+      }
+
+      // Notifica a UI
+      if (onWinDetected) {
+          onWinDetected(maxHits);
+      }
+
+      // Delay para abrir o modal (dá tempo do usuário ver o Toast de parabéns)
+      setTimeout(() => {
+          setShowSavedGamesModal(true);
+      }, 1500);
+
       return maxHits;
     }
     return 0;

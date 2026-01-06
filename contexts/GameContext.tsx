@@ -64,13 +64,22 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // 1. Lottery Data Hook
   const lotteryData = useLotteryData(activeGame);
   
-  // 2. Saved Games Hook (Now global)
-  const savedLogic = useSavedGames(activeGame, lotteryData.latestResult);
-
   const notify = useCallback((msg: string, type: 'success' | 'info' | 'error') => {
     setNotification({ msg, type });
     if (type === 'success') setTimeout(() => setNotification(null), 3000);
   }, []);
+
+  // Callback acionado quando a verificação automática encontra vitórias
+  const onWinDetected = useCallback((hits: number) => {
+      const msg = hits >= 15 || hits === 6 || hits === 20 
+          ? `🏆 INCRÍVEL! Você acertou ${hits} pontos! Conferindo jogos...` 
+          : `🎉 Parabéns! Encontramos jogos com ${hits} acertos! Abrindo conferência...`;
+      
+      notify(msg, 'success');
+  }, [notify]);
+  
+  // 2. Saved Games Hook (Now global) - Passamos o onWinDetected
+  const savedLogic = useSavedGames(activeGame, lotteryData.latestResult, onWinDetected);
 
   const switchGame = (gameId: string) => {
     vibrate(15);
