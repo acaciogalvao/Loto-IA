@@ -208,13 +208,9 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                              >
                                 <span>🏆</span> Premiação
                              </h3>
-                             <button className="w-6 h-6 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-slate-300">
-                                {isMinimized ? (
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                                ) : (
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-                                )}
-                             </button>
+                             <div className={`transition-transform duration-300 text-slate-300 ${isMinimized ? '-rotate-90' : 'rotate-0'}`}>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                             </div>
                         </div>
                         
                         {/* CONTEÚDO EXPANSÍVEL */}

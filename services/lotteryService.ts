@@ -20,14 +20,38 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
         faixa,
         ganhadores: p.numeroDeGanhadores,
         valor: p.valorPremio,
-        bilhete: p.descricaoFaixa, 
-        locais: (p.listaMunicipio || []).map((m: any) => ({
-            cidade: m.municipio,
-            uf: m.uf,
-            ganhadores: 1 
-        }))
+        bilhete: p.descricaoFaixa,
+        locais: [] // Inicializa vazio, será preenchido abaixo com dados da raiz
     };
   }).sort((a: PrizeEntry, b: PrizeEntry) => a.faixa - b.faixa); 
+
+  // --- CORREÇÃO DE LOCALIZAÇÃO ---
+  // A lista de ganhadores vem na raiz do objeto e refere-se à faixa principal.
+  const locaisGanhadores = (data.listaMunicipioUFGanhadores || []).map((m: any) => ({
+      cidade: m.municipio,
+      uf: m.uf,
+      ganhadores: m.ganhadores || 1
+  }));
+
+  if (locaisGanhadores.length > 0 && premios.length > 0) {
+      // Identifica a faixa principal para atribuir os locais
+      let faixaPrincipal: PrizeEntry | undefined;
+
+      if (gameSlug === 'federal') {
+          // Na federal, o 1º prêmio (faixa 1) é o principal
+          faixaPrincipal = premios.find(p => p.faixa === 1);
+      } else {
+          // Nas outras (Lotofácil, Mega, etc), a maior faixa numérica é a principal.
+          // Como o array 'premios' está ordenado ascendente por faixa, pegamos o último item.
+          // (Ex: Lotofácil vai de 11 a 15, o último é 15).
+          faixaPrincipal = premios[premios.length - 1];
+      }
+
+      if (faixaPrincipal) {
+          faixaPrincipal.locais = locaisGanhadores;
+      }
+  }
+  // -------------------------------
 
   return {
     concurso: data.numero,
