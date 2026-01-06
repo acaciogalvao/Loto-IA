@@ -3,8 +3,17 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, TrendResult, HistoricalAnalysis } from '../types';
 import { GAMES } from '../utils/gameConfig';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const MODEL_NAME = 'gemini-3-flash-preview';
+
+// Inicialização Lazy para evitar crash na carga da página se a ENV estiver faltando
+const getAiClient = () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        console.error("CRITICAL: API_KEY environment variable is missing.");
+        throw new Error("Chave de API do Gemini não configurada no ambiente.");
+    }
+    return new GoogleGenAI({ apiKey });
+};
 
 // Helper de Retry com Backoff Exponencial
 async function runWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
@@ -28,6 +37,7 @@ export const getAiSuggestions = async (
 ): Promise<number[]> => {
   return runWithRetry(async () => {
     try {
+      const ai = getAiClient();
       const alreadySelectedCount = currentSelection.length;
       const neededCount = selectionSize - alreadySelectedCount;
       
@@ -97,6 +107,7 @@ export const getAiSuggestions = async (
 export const analyzeClosing = async (selectedNumbers: number[], totalGames: number): Promise<AnalysisResult> => {
   return runWithRetry(async () => {
       try {
+          const ai = getAiClient();
           const response = await ai.models.generateContent({
               model: MODEL_NAME,
               contents: `Analise este fechamento de loteria.
@@ -137,6 +148,7 @@ export const analyzeClosing = async (selectedNumbers: number[], totalGames: numb
 export const getLotteryTrends = async (gameName: string, recentResults: string[] = []): Promise<TrendResult> => {
     return runWithRetry(async () => {
         try {
+            const ai = getAiClient();
             const contextData = recentResults.length > 0 
                 ? `Baseado nestes últimos resultados (dezenas): ${recentResults.slice(0, 10).join(' | ')}` 
                 : "Baseado no histórico estatístico geral";
@@ -168,6 +180,7 @@ export const getLotteryTrends = async (gameName: string, recentResults: string[]
 export const getHistoricalSimulation = async (gameName: string, game: number[]): Promise<HistoricalAnalysis> => {
     return runWithRetry(async () => {
         try {
+            const ai = getAiClient();
             const response = await ai.models.generateContent({
                 model: MODEL_NAME,
                 contents: `Simule o desempenho histórico do jogo [${game.join(', ')}] na ${gameName} nos últimos 5 anos.

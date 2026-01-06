@@ -73,11 +73,14 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
 export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult | null> => {
   try {
     const response = await fetch(`${API_URL}/${gameSlug}/ultimo`);
-    if (!response.ok) throw new Error('Network response was not ok');
+    if (!response.ok) {
+        console.warn(`API responded with status: ${response.status}`);
+        throw new Error('Network response was not ok');
+    }
     const data = await response.json();
     return mapApiToResult(data, gameSlug);
   } catch (error) {
-    console.error("Erro ao buscar último resultado:", error);
+    console.error("Erro ao buscar último resultado (Possível problema de CORS ou API fora do ar):", error);
     return null;
   }
 };
