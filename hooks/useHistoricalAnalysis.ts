@@ -2,14 +2,13 @@
 import { useState, useMemo } from 'react';
 import { PastGameResult, GameConfig, LotteryResult } from '../types';
 import { vibrate } from '../utils/uiUtils';
-import { fetchResultsRange } from '../services/lotteryService';
-import { GAME_YEAR_STARTS, getYearsList } from '../utils/lotteryLogic';
+import { getFullHistoryWithCache } from '../services/lotteryService';
+import { getYearsList } from '../utils/lotteryLogic';
 
 export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: LotteryResult | null) => {
   const [showHistoryAnalysisModal, setShowHistoryAnalysisModal] = useState(false);
   const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear());
   
-  // Função para definir o padrão correto ao abrir
   const getDefaultTargetPoints = (id: string) => {
       switch(id) {
           case 'lotofacil': return 15;
@@ -20,7 +19,7 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
           case 'diadesorte': return 7;
           case 'duplasena': return 6;
           case 'supersete': return 7;
-          case 'maismilionaria': return 1; // Padrão Faixa 1 (6+2)
+          case 'maismilionaria': return 1;
           default: return activeGame.minSelection;
       }
   };
@@ -31,8 +30,6 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
 
   const availableYears = useMemo(() => activeGame ? getYearsList(activeGame.startYear) : [], [activeGame]);
-
-  const getAnalysisCacheKey = (year: number) => `lotosmart_analysis_${activeGame.id}_${year}`;
 
   const handleOpenHistoryAnalysis = () => {
       vibrate(15);
@@ -45,74 +42,42 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
   const handleRunHistoryAnalysis = async (notify: (msg: string, type: 'success' | 'error') => void) => {
       vibrate(10);
       const year = analysisYear;
-      const cacheKey = getAnalysisCacheKey(year);
       
       setIsAnalysisLoading(true);
-      setAnalysisResults([]);
-      setAnalysisProgress(5); 
+      setAnalysisProgress(10);
 
       try {
-          const cachedData = localStorage.getItem(cacheKey);
-          if (cachedData) {
-              const parsed = JSON.parse(cachedData);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                  setAnalysisResults(parsed);
-                  setAnalysisProgress(100);
-                  setIsAnalysisLoading(false);
-                  vibrate(50);
-                  notify(`Dados de ${year} carregados do cache!`, 'success');
-                  return;
-              }
+          // OTIMIZAÇÃO MESTRA: Usa o cache global de histórico em vez de buscar por ano
+          // Isso torna o Raio-X instantâneo se o usuário já navegou pelo app
+          if (!latestResult) {
+              throw new Error("Último resultado não disponível");
           }
-      } catch (e) {
-          console.warn("Erro ao ler cache de análise", e);
-      }
 
-      const yearMap = GAME_YEAR_STARTS[activeGame.id];
-      const startConcurso = yearMap ? yearMap[year] || 1 : 1;
-      let endConcurso = 999999;
-      
-      if (yearMap && yearMap[year + 1]) {
-          endConcurso = yearMap[year + 1] - 1;
-      } else if (latestResult) {
-          endConcurso = latestResult.concurso;
-      } else {
-          endConcurso = startConcurso + 200; 
-      }
+          const fullHistory = await getFullHistoryWithCache(
+              activeGame.apiSlug, 
+              latestResult.concurso, 
+              (prog) => setAnalysisProgress(prog)
+          );
 
-      if (latestResult && endConcurso > latestResult.concurso) {
-          endConcurso = latestResult.concurso;
-      }
-      
-      if (startConcurso > endConcurso) {
-          setIsAnalysisLoading(false);
-          setAnalysisProgress(100);
-          notify(`Ainda não há dados para ${year}.`, 'error');
-          return;
-      }
-
-      try {
-          const results = await fetchResultsRange(activeGame.apiSlug, startConcurso, endConcurso, (prog) => {
-              setAnalysisProgress(prog);
-          });
-          
-          const strictYearResults = results.filter(game => {
+          // Filtra o histórico completo pelo ano selecionado
+          const yearResults = fullHistory.filter(game => {
               if (!game.data) return false;
-              return game.data.includes(`/${year}`);
-          }).sort((a, b) => b.concurso - a.concurso);
+              // Formatos comuns: "DD/MM/YYYY" ou "YYYY-MM-DD"
+              return game.data.includes(`/${year}`) || game.data.startsWith(`${year}-`);
+          });
 
-          setAnalysisResults(strictYearResults);
+          setAnalysisResults(yearResults);
           
-          if (strictYearResults.length > 0) {
-              try {
-                  localStorage.setItem(cacheKey, JSON.stringify(strictYearResults));
-              } catch(e) { console.error("Cache cheio na análise", e); }
+          if (yearResults.length === 0) {
+              notify(`Nenhum dado encontrado para o ano ${year}.`, 'error');
+          } else {
+              vibrate(50);
+              notify(`Análise de ${year} concluída com sucesso!`, 'success');
           }
-          vibrate(50);
 
       } catch (e) {
-          console.error("Erro na analise historica", e);
-          notify("Erro ao buscar histórico do ano.", 'error');
+          console.error("Erro na analise historica:", e);
+          notify("Erro ao processar análise histórica.", 'error');
       } finally {
           setIsAnalysisLoading(false);
           setAnalysisProgress(100);
