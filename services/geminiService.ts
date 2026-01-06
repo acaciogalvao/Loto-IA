@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, TrendResult, HistoricalAnalysis } from '../types';
+import { AnalysisResult, TrendResult, HistoricalAnalysis, NumberProbability } from '../types';
 import { GAMES } from '../utils/gameConfig';
 
 const MODEL_NAME = 'gemini-3-flash-preview';
@@ -150,13 +150,14 @@ export const getLotteryTrends = async (gameName: string, recentResults: string[]
         try {
             const ai = getAiClient();
             const contextData = recentResults.length > 0 
-                ? `Baseado nestes últimos resultados (dezenas): ${recentResults.slice(0, 10).join(' | ')}` 
+                ? `Baseado nestes últimos resultados (dezenas): ${recentResults.slice(0, 20).join(' | ')}` 
                 : "Baseado no histórico estatístico geral";
 
             const response = await ai.models.generateContent({
                 model: MODEL_NAME,
                 contents: `Analise as tendências para a ${gameName}. ${contextData}.
                 Identifique 5 números 'Quentes' (alta frequência recente) e 5 números 'Frios' (atrasados).
+                Para CADA número da cartela, gere uma probabilidade de ocorrência (0-100) baseada em padrões de atraso e tendência.
                 Forneça uma breve análise de texto.`,
                 config: {
                     responseMimeType: "application/json",
@@ -165,6 +166,19 @@ export const getLotteryTrends = async (gameName: string, recentResults: string[]
                         properties: {
                             hot: { type: Type.ARRAY, items: { type: Type.INTEGER } },
                             cold: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                            probabilities: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        number: { type: Type.INTEGER },
+                                        probability: { type: Type.NUMBER },
+                                        status: { type: Type.STRING, enum: ['hot', 'cold', 'neutral'] },
+                                        lastSeen: { type: Type.INTEGER },
+                                        frequency: { type: Type.NUMBER }
+                                    }
+                                }
+                            },
                             analysis: { type: Type.STRING }
                         }
                     }
@@ -172,19 +186,25 @@ export const getLotteryTrends = async (gameName: string, recentResults: string[]
             });
             return JSON.parse(response.text || "{}");
         } catch (error) {
-            return { hot: [], cold: [], analysis: "Indisponível no momento." };
+            return { hot: [], cold: [], probabilities: [], analysis: "Indisponível no momento." };
         }
     });
 };
 
-export const getHistoricalSimulation = async (gameName: string, game: number[]): Promise<HistoricalAnalysis> => {
+export const getHistoricalSimulation = async (gameName: string, game: number[], history: any[] = []): Promise<HistoricalAnalysis> => {
     return runWithRetry(async () => {
         try {
             const ai = getAiClient();
+            const context = history.length > 0 ? `Usando o histórico real fornecido de ${history.length} concursos.` : "Usando estimativas estatísticas.";
+            
             const response = await ai.models.generateContent({
                 model: MODEL_NAME,
-                contents: `Simule o desempenho histórico do jogo [${game.join(', ')}] na ${gameName} nos últimos 5 anos.
-                Estime a quantidade de prêmios (aprox) baseado em probabilidade.`,
+                contents: `Simule o desempenho histórico do jogo [${game.join(', ')}] na ${gameName}. ${context}
+                Calcule:
+                1. Quantidade de prêmios em cada faixa.
+                2. Investimento total (baseado no preço atual).
+                3. Prêmio total acumulado.
+                4. Lucro/Prejuízo líquido e ROI.`,
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -195,6 +215,10 @@ export const getHistoricalSimulation = async (gameName: string, game: number[]):
                             wins13: { type: Type.INTEGER },
                             wins12: { type: Type.INTEGER },
                             wins11: { type: Type.INTEGER },
+                            totalInvested: { type: Type.NUMBER },
+                            totalPrize: { type: Type.NUMBER },
+                            netProfit: { type: Type.NUMBER },
+                            roi: { type: Type.NUMBER },
                             probabilityText: { type: Type.STRING },
                             profitabilityIndex: { type: Type.NUMBER }
                         }
@@ -203,7 +227,11 @@ export const getHistoricalSimulation = async (gameName: string, game: number[]):
             });
             return JSON.parse(response.text || "{}");
         } catch (e) {
-            return { wins15: 0, wins14: 0, wins13: 0, wins12: 0, wins11: 0, probabilityText: "Erro na simulação", profitabilityIndex: 0 };
+            return { 
+                wins15: 0, wins14: 0, wins13: 0, wins12: 0, wins11: 0, 
+                totalInvested: 0, totalPrize: 0, netProfit: 0, roi: 0,
+                probabilityText: "Erro na simulação", profitabilityIndex: 0 
+            };
         }
     });
 };

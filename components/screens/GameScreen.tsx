@@ -185,6 +185,9 @@ const GameScreen: React.FC = () => {
         isAnalysisLoading={historyLogic.isAnalysisLoading}
         analysisProgress={historyLogic.analysisProgress}
         analysisResults={historyLogic.analysisResults}
+        backtestResult={historyLogic.backtestResult}
+        onRunBacktest={() => historyLogic.runBacktest(generatedGames, notify)}
+        probabilities={gameLogic.trends?.probabilities}
       />
     </>
   );

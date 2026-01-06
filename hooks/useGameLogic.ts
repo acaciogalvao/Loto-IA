@@ -4,7 +4,7 @@ import { GameConfig, AppStatus, AnalysisResult, TrendResult } from '../types';
 import { DEFAULT_GAME } from '../utils/gameConfig';
 import { vibrate } from '../utils/uiUtils';
 import { generateSmartPatternGames, generateReducedClosing, generateMathematicalClosing } from '../utils/lotteryLogic';
-import { getAiSuggestions, analyzeClosing } from '../services/geminiService';
+import { getAiSuggestions, analyzeClosing, getLotteryTrends } from '../services/geminiService';
 
 export type ClosingMethod = 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode';
 
@@ -58,7 +58,12 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   useEffect(() => {
     handleClear();
     setGameSize(activeGame.minSelection);
-  }, [activeGame.id]);
+    
+    // Carregar tendências ao mudar de jogo
+    if (latestResult) {
+        getLotteryTrends(activeGame.name, latestResult.dezenas).then(setTrends);
+    }
+  }, [activeGame.id, latestResult]);
 
   useEffect(() => {
     if (closingMethod === 'free_mode') {

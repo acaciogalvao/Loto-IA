@@ -28,6 +28,7 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
   const [analysisResults, setAnalysisResults] = useState<PastGameResult[]>([]);
   const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
+  const [backtestResult, setBacktestResult] = useState<HistoricalAnalysis | null>(null);
 
   const availableYears = useMemo(() => activeGame ? getYearsList(activeGame.startYear) : [], [activeGame]);
 
@@ -36,6 +37,7 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       setShowHistoryAnalysisModal(true);
       setAnalysisResults([]);
       setAnalysisProgress(0);
+      setBacktestResult(null);
       setAnalysisTargetPoints(getDefaultTargetPoints(activeGame.id));
   };
 
@@ -84,6 +86,66 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       }
   };
 
+  const runBacktest = async (userGames: number[][], notify: (msg: string, type: 'success' | 'error') => void) => {
+      if (userGames.length === 0) return;
+      
+      setIsAnalysisLoading(true);
+      setAnalysisProgress(10);
+      
+      try {
+          const fullHistory = await getFullHistoryWithCache(
+              activeGame.apiSlug, 
+              latestResult?.concurso || 0, 
+              (prog) => setAnalysisProgress(prog)
+          );
+
+          let totalInvested = 0;
+          let totalPrize = 0;
+          let wins = { 15: 0, 14: 0, 13: 0, 12: 0, 11: 0, 6: 0, 5: 0, 4: 0 };
+          
+          // Preço base (simplificado para o exemplo, idealmente viria do gameConfig)
+          const pricePerGame = typeof activeGame.priceTable[0].price === 'number' ? activeGame.priceTable[0].price : 5;
+
+          fullHistory.forEach(draw => {
+              const drawNumbers = draw.dezenas.map(Number);
+              userGames.forEach(game => {
+                  totalInvested += pricePerGame;
+                  const matches = game.filter(n => drawNumbers.includes(n)).length;
+                  
+                  if (matches >= 11) {
+                      // Lógica simplificada de prêmios
+                      const prizeMap: Record<number, number> = { 15: 1000000, 14: 1500, 13: 30, 12: 12, 11: 6, 6: 500000, 5: 1000, 4: 10 };
+                      totalPrize += prizeMap[matches] || 0;
+                      if (matches in wins) (wins as any)[matches]++;
+                  }
+              });
+          });
+
+          const netProfit = totalPrize - totalInvested;
+          const roi = totalInvested > 0 ? (netProfit / totalInvested) * 100 : 0;
+
+          setBacktestResult({
+              wins15: wins[15] || wins[6] || 0,
+              wins14: wins[14] || wins[5] || 0,
+              wins13: wins[13] || wins[4] || 0,
+              wins12: wins[12] || 0,
+              wins11: wins[11] || 0,
+              totalInvested,
+              totalPrize,
+              netProfit,
+              roi,
+              probabilityText: roi > 0 ? "Estratégia Lucrativa Historicamente" : "Estratégia com ROI Negativo",
+              profitabilityIndex: Math.min(100, Math.max(0, 50 + roi / 10))
+          });
+
+          notify("Backtesting concluído!", "success");
+      } catch (e) {
+          notify("Erro ao rodar simulador.", "error");
+      } finally {
+          setIsAnalysisLoading(false);
+      }
+  };
+
   return {
       showHistoryAnalysisModal,
       setShowHistoryAnalysisModal,
@@ -95,7 +157,9 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
       analysisResults,
       isAnalysisLoading,
       analysisProgress,
+      backtestResult,
       handleOpenHistoryAnalysis,
-      handleRunHistoryAnalysis
+      handleRunHistoryAnalysis,
+      runBacktest
   };
 };
