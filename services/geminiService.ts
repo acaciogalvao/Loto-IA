@@ -3,13 +3,13 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, TrendResult, HistoricalAnalysis, NumberProbability } from '../types';
 import { GAMES } from '../utils/gameConfig';
 
-const MODEL_NAME = 'gemini-3-flash-preview';
+const MODEL_NAME = 'gemini-1.5-flash';
 
 // Inicialização Lazy para evitar crash na carga da página se a ENV estiver faltando
 const getAiClient = () => {
-    const apiKey = process.env.API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
     if (!apiKey) {
-        console.error("CRITICAL: API_KEY environment variable is missing.");
+        console.error("CRITICAL: GEMINI_API_KEY environment variable is missing.");
         throw new Error("Chave de API do Gemini não configurada no ambiente.");
     }
     return new GoogleGenAI({ apiKey });

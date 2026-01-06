@@ -14,18 +14,21 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ probabilities, gameConfig, historyData }) => {
   const heatmapData = useMemo(() => {
-    return probabilities.sort((a, b) => a.number - b.number);
+    if (!probabilities) return [];
+    return [...probabilities].sort((a, b) => a.number - b.number);
   }, [probabilities]);
 
   const sumTrendData = useMemo(() => {
+    if (!historyData) return [];
     return historyData.slice(0, 20).map(draw => ({
       concurso: draw.concurso,
-      soma: draw.dezenas.reduce((acc: number, curr: string) => acc + Number(curr), 0)
+      soma: draw.dezenas ? draw.dezenas.reduce((acc: number, curr: string) => acc + Number(curr), 0) : 0
     })).reverse();
   }, [historyData]);
 
   const frequencyData = useMemo(() => {
-    return probabilities
+    if (!probabilities) return [];
+    return [...probabilities]
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, 10);
   }, [probabilities]);

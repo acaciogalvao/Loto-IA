@@ -44,8 +44,9 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
   if (!isOpen) return null;
 
   const filteredAnalysisResults = useMemo(() => {
-    if (analysisResults.length === 0) return [];
+    if (!analysisResults || analysisResults.length === 0) return [];
     return analysisResults.filter(game => {
+        if (!game || !game.premiacoes) return false;
         if (activeGame.id === 'federal') return true;
         const prize = game.premiacoes.find(p => p.faixa === analysisTargetPoints);
         return prize && prize.ganhadores > 0;
@@ -127,7 +128,7 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                                 onChange={(e) => setAnalysisYear(Number(e.target.value))}
                                 className="w-full bg-slate-900 text-white border border-slate-600 rounded-lg p-2 text-sm font-bold focus:ring-2 focus:ring-purple-500 outline-none"
                                 >
-                                    {availableYears.map(year => (
+                                    {availableYears && availableYears.map(year => (
                                         <option key={year} value={year}>{year}</option>
                                     ))}
                                 </select>
@@ -155,7 +156,53 @@ const HistoryAnalysisModal: React.FC<HistoryAnalysisModalProps> = ({
                                         <option value={4}>4 Acertos (Quadra)</option>
                                         </>
                                     )}
-                                    {/* ... outros jogos ... */}
+                                    {activeGame.id === 'quina' && (
+                                        <>
+                                        <option value={5}>5 Acertos (Quina)</option>
+                                        <option value={4}>4 Acertos (Quadra)</option>
+                                        <option value={3}>3 Acertos (Terno)</option>
+                                        <option value={2}>2 Acertos (Duque)</option>
+                                        </>
+                                    )}
+                                    {activeGame.id === 'lotomania' && (
+                                        <>
+                                        <option value={20}>20 Acertos</option>
+                                        <option value={19}>19 Acertos</option>
+                                        <option value={18}>18 Acertos</option>
+                                        <option value={17}>17 Acertos</option>
+                                        <option value={16}>16 Acertos</option>
+                                        <option value={15}>15 Acertos</option>
+                                        <option value={0}>0 Acertos</option>
+                                        </>
+                                    )}
+                                    {activeGame.id === 'diadesorte' && (
+                                        <>
+                                        <option value={7}>7 Acertos</option>
+                                        <option value={6}>6 Acertos</option>
+                                        <option value={5}>5 Acertos</option>
+                                        <option value={4}>4 Acertos</option>
+                                        </>
+                                    )}
+                                    {activeGame.id === 'duplasena' && (
+                                        <>
+                                        <option value={6}>6 Acertos (Sena)</option>
+                                        <option value={5}>5 Acertos (Quina)</option>
+                                        <option value={4}>4 Acertos (Quadra)</option>
+                                        <option value={3}>3 Acertos (Terno)</option>
+                                        </>
+                                    )}
+                                    {activeGame.id === 'supersete' && (
+                                        <>
+                                        <option value={7}>7 Acertos</option>
+                                        <option value={6}>6 Acertos</option>
+                                        <option value={5}>5 Acertos</option>
+                                        <option value={4}>4 Acertos</option>
+                                        <option value={3}>3 Acertos</option>
+                                        </>
+                                    )}
+                                    {!['lotofacil', 'megasena', 'quina', 'lotomania', 'diadesorte', 'duplasena', 'supersete'].includes(activeGame.id) && (
+                                        <option value={activeGame.minSelection}>{activeGame.minSelection} Acertos</option>
+                                    )}
                                 </select>
                             </div>
                         </div>
