@@ -28,7 +28,7 @@ export const useHistoricalAnalysis = (activeGame: GameConfig, latestResult: Lott
   const [analysisResults, setAnalysisResults] = useState<PastGameResult[]>([]);
   const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
-  const [backtestResult, setBacktestResult] = useState<HistoricalAnalysis | null>(null);
+  const [backtestResult, setBacktestResult] = useState<any | null>(null);
 
   const availableYears = useMemo(() => activeGame ? getYearsList(activeGame.startYear) : [], [activeGame]);
 
