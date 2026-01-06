@@ -3,6 +3,25 @@ import { LotteryResult, PastGameResult, PrizeEntry } from '../types';
 
 const API_URL = 'https://api.guidi.dev.br/loteria';
 
+// Helper robusto para fetch com retry e backoff exponencial
+const fetchWithRetry = async (url: string, retries = 3, backoff = 1000): Promise<Response> => {
+    try {
+        const response = await fetch(url);
+        // Tenta novamente se for erro de servidor (5xx) ou Too Many Requests (429)
+        if (response.status === 429 || response.status >= 500) {
+             throw new Error(`Server returned status ${response.status}`);
+        }
+        return response;
+    } catch (err) {
+        if (retries > 0) {
+            // Se for erro de rede (Failed to fetch) ou status temporário, espera e tenta de novo
+            await new Promise(r => setTimeout(r, backoff));
+            return fetchWithRetry(url, retries - 1, backoff * 1.5);
+        }
+        throw err;
+    }
+};
+
 const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
   // Mapping logic for Guidi API
   const premios: PrizeEntry[] = (data.listaRateioPremio || []).map((p: any) => {
@@ -72,7 +91,7 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
 
 export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult | null> => {
   try {
-    const response = await fetch(`${API_URL}/${gameSlug}/ultimo`);
+    const response = await fetchWithRetry(`${API_URL}/${gameSlug}/ultimo`);
     if (!response.ok) {
         console.warn(`API responded with status: ${response.status}`);
         throw new Error('Network response was not ok');
@@ -87,7 +106,7 @@ export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult
 
 export const fetchResultByConcurso = async (gameSlug: string, concurso: number): Promise<PastGameResult | null> => {
   try {
-    const response = await fetch(`${API_URL}/${gameSlug}/${concurso}`);
+    const response = await fetchWithRetry(`${API_URL}/${gameSlug}/${concurso}`);
     if (!response.ok) return null;
     const data = await response.json();
     const result = mapApiToResult(data, gameSlug);
@@ -158,7 +177,9 @@ export const fetchResultsRange = async (
   const results: PastGameResult[] = [];
   const total = endConcurso - startConcurso + 1;
   let completed = 0;
-  const BATCH_SIZE = 5; 
+  
+  // REDUZIDO para evitar erros de "Failed to fetch" (Timeout/Rate Limit)
+  const BATCH_SIZE = 3; 
   
   for (let i = startConcurso; i <= endConcurso; i += BATCH_SIZE) {
       const batchPromises = [];
@@ -179,7 +200,9 @@ export const fetchResultsRange = async (
       
       completed += batchPromises.length;
       if (onProgress) onProgress(Math.floor((completed / total) * 100));
-      await new Promise(r => setTimeout(r, 150));
+      
+      // AUMENTADO o delay para dar respiro à rede/API
+      await new Promise(r => setTimeout(r, 300));
   }
 
   return results.sort((a, b) => b.concurso - a.concurso);
