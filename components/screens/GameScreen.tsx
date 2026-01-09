@@ -3,11 +3,12 @@ import React, { useState, useMemo } from 'react';
 import { useGameContext } from '../../contexts/GameContext';
 import { useGameLogic } from '../../hooks/useGameLogic';
 import { useHistoricalAnalysis } from '../../hooks/useHistoricalAnalysis';
-import { PastGameResult, SavedBetBatch, SavedGame } from '../../types';
+import { PastGameResult } from '../../types';
 import { getResultNumbersAsSet } from '../../utils/lotteryLogic';
 
 // Components
 import LatestResultCard from '../LatestResultCard';
+import ActionButtons from '../ActionButtons';
 import NumberSelectionPanel from '../NumberSelectionPanel';
 import GeneratedGamesList from '../GeneratedGamesList';
 import GameControls from '../GameControls';
@@ -24,21 +25,19 @@ const GameScreen: React.FC = () => {
     searchAndDisplayResult, 
     resetDisplayToLatest, 
     notify,
-    // Saved Games Logic is now in Context, we only need handlers if passing to dumb components
     handleSaveBatch,
     handleSaveSingleGame
   } = useGameContext();
 
-  // Local View State for History Details
   const [viewingGame, setViewingGame] = useState<PastGameResult | null>(null);
 
-  // --- LOGIC HOOKS ---
+  // Lógica Principal
   const gameLogic = useGameLogic(activeGame, latestResult);
   const historyLogic = useHistoricalAnalysis(activeGame, latestResult);
 
-  const { selectedNumbers, generatedGames, totalGenerationCost, selectedTeam } = gameLogic; // Extract selectedTeam
+  const { selectedNumbers, generatedGames, totalGenerationCost, selectedTeam } = gameLogic; 
 
-  // Derived State
+  // Estado derivado: Resultados do concurso para conferência
   const resultNumbers = useMemo<Set<number>>(() => {
     const target = displayedResult || latestResult;
     if (!target) return new Set<number>();
@@ -46,7 +45,6 @@ const GameScreen: React.FC = () => {
     return getResultNumbersAsSet(target, activeGame.id);
   }, [displayedResult, latestResult, activeGame.id]);
 
-  // Handlers
   const handleCopyGame = (game: number[], index: number) => {
       navigator.clipboard.writeText(game.join(', '));
       notify("Jogo copiado!", 'success');
@@ -58,7 +56,7 @@ const GameScreen: React.FC = () => {
       return success;
   };
 
-  // --- SHARE HELPERS ---
+  // Formata números para compartilhamento (ex: Super Sete 1-2-3 vs Lotofacil 01 02 03)
   const formatGameForShare = (numbers: number[]): string => {
       if (activeGame.id === 'supersete') {
           return numbers.map(n => n % 10).join('-');
@@ -119,10 +117,23 @@ const GameScreen: React.FC = () => {
           onReset={resetDisplayToLatest}
         />
 
+        <ActionButtons 
+            activeGame={activeGame}
+            status={gameLogic.status}
+            loadingProgress={gameLogic.loadingProgress}
+            onGenerateTop={() => {
+                gameLogic.setClosingMethod('smart_pattern');
+                gameLogic.handleGenerate(notify);
+            }}
+            onOpenAnalysis={historyLogic.handleOpenHistoryAnalysis}
+            hasResult={!!latestResult}
+        />
+
         <NumberSelectionPanel 
           activeGame={activeGame} 
           selectedNumbers={selectedNumbers} 
-          onToggleNumber={(n) => gameLogic.toggleNumber(n, notify)} 
+          fixedNumbers={gameLogic.fixedNumbers}
+          onToggleNumber={(n, isFixing) => gameLogic.toggleNumber(n, isFixing, notify)} 
           gameSize={gameLogic.gameSize}
           onAutoSelectSize={(s) => gameLogic.handleGameSizeChangeWithAutoSelect(s, notify)}
           generationLimit={gameLogic.generationLimit}
@@ -132,8 +143,13 @@ const GameScreen: React.FC = () => {
           status={gameLogic.status}
           resultNumbers={resultNumbers}
           onOpenAnalysis={historyLogic.handleOpenHistoryAnalysis}
-          selectedTeam={selectedTeam} // NOVO
-          onSelectTeam={gameLogic.setSelectedTeam} // NOVO
+          selectedTeam={selectedTeam} 
+          onSelectTeam={gameLogic.setSelectedTeam}
+          isFixMode={gameLogic.isFixMode}
+          setIsFixMode={gameLogic.setIsFixMode}
+          targetFixedCount={gameLogic.targetFixedCount}
+          setTargetFixedCount={gameLogic.setTargetFixedCount}
+          onAiSuggestion={() => gameLogic.handleAiSuggestion(notify)}
         />
 
         <GeneratedGamesList 
@@ -143,14 +159,14 @@ const GameScreen: React.FC = () => {
           resultNumbers={resultNumbers}
           totalGenerationCost={totalGenerationCost}
           analysis={gameLogic.analysis}
-          onSaveBatch={() => handleSaveBatch(generatedGames, latestResult?.proximoConcurso || 0, selectedTeam, notify)} // Pass selectedTeam
+          onSaveBatch={() => handleSaveBatch(generatedGames, latestResult?.proximoConcurso || 0, selectedTeam, notify)} 
           onShareBatch={handleShareGeneratedList}
           onCopyGame={handleCopyGame}
-          onSaveSingleGame={(e, game, idx) => { e.stopPropagation(); handleSaveSingleGame(game, idx, latestResult?.proximoConcurso || 0, selectedTeam, notify); }} // Pass selectedTeam
+          onSaveSingleGame={(e, game, idx) => { e.stopPropagation(); handleSaveSingleGame(game, idx, latestResult?.proximoConcurso || 0, selectedTeam, notify); }}
           onShareSingleGame={handleShareSingleGame}
           copiedGameIndex={null}
           onRemoveGames={gameLogic.removeGames}
-          selectedTeam={selectedTeam} // Pass selectedTeam
+          selectedTeam={selectedTeam} 
         />
       </div>
 
@@ -163,6 +179,9 @@ const GameScreen: React.FC = () => {
         onClear={gameLogic.handleClear}
         onAiSuggestion={() => gameLogic.handleAiSuggestion(notify)}
         onGenerate={() => gameLogic.handleGenerate(notify)}
+        isFixMode={gameLogic.isFixMode}
+        targetFixedCount={gameLogic.targetFixedCount}
+        currentFixedCount={gameLogic.fixedNumbers ? gameLogic.fixedNumbers.size : 0}
       />
 
       <GameDetailsModal
@@ -185,9 +204,6 @@ const GameScreen: React.FC = () => {
         isAnalysisLoading={historyLogic.isAnalysisLoading}
         analysisProgress={historyLogic.analysisProgress}
         analysisResults={historyLogic.analysisResults}
-        backtestResult={historyLogic.backtestResult}
-        onRunBacktest={() => historyLogic.runBacktest(generatedGames, notify)}
-        probabilities={gameLogic.trends?.probabilities}
       />
     </>
   );

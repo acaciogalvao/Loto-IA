@@ -26,7 +26,6 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
 }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchConcurso, setSearchConcurso] = useState('');
-  // false = Expandido (conteúdo visível), true = Recolhido (só cabeçalho)
   const [isMinimized, setIsMinimized] = useState(false);
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
@@ -43,7 +42,7 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
   };
 
   const handleImport = () => {
-      if (!result) return;
+      if (!result || !result.dezenas) return;
       const numbers = result.dezenas.map(d => parseInt(d, 10));
       onImport(numbers);
   };
@@ -69,8 +68,9 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
   }
 
   if (!result) return null;
+  // Defensive check for dezenas
+  const safeDezenas = Array.isArray(result.dezenas) ? result.dezenas : [];
 
-  // Ordenação da premiação: Federal (Ascendente 1..5), Outros (Descendente: Maior prêmio primeiro)
   const displayPrizes = [...(result.premiacoes || [])];
   if (activeGame.id !== 'federal') {
       displayPrizes.reverse();
@@ -126,11 +126,9 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                     <span className="opacity-0 group-hover/search:opacity-100 transition-opacity text-xs bg-white/20 rounded-full w-5 h-5 flex items-center justify-center">🔍</span>
                 </div>
              )}
-             {/* Data visível em mobile se não estiver buscando */}
              {!isSearching && <div className="text-xs opacity-70 font-medium sm:hidden mt-0.5">{result.data}</div>}
           </div>
 
-          {/* Lado Direito: Botões de Ação e Status */}
           <div className="flex flex-col items-end gap-2 shrink-0">
              <div className="flex items-center gap-2">
                  <button 
@@ -157,11 +155,11 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
 
         <div className="animate-fade-in space-y-6">
             
-            {/* BOLAS DO RESULTADO (SEMPRE VISÍVEIS) */}
+            {/* BOLAS DO RESULTADO */}
             <div>
                 {activeGame.id === 'federal' ? (
                     <div className="space-y-1.5 bg-black/20 p-3 rounded-xl border border-white/10 backdrop-blur-sm">
-                        {result.dezenas.slice(0, 5).map((bilhete, idx) => (
+                        {safeDezenas.slice(0, 5).map((bilhete, idx) => (
                             <div key={idx} className="flex justify-between items-center border-b border-white/5 last:border-0 pb-1 last:pb-0">
                                     <span className="text-[9px] uppercase font-bold opacity-60">{idx + 1}º Prêmio</span>
                                     <span className="font-mono text-base font-bold tracking-widest text-emerald-300 drop-shadow-sm">{bilhete}</span>
@@ -170,7 +168,7 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                     </div>
                 ) : (
                     <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
-                        {result.dezenas.map((n, idx) => (
+                        {safeDezenas.map((n, idx) => (
                             <div 
                                 key={idx}
                                 className="w-10 h-10 flex items-center justify-center rounded-full bg-white text-slate-900 font-black text-base shadow-lg border-2 border-white/50"
@@ -182,8 +180,8 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                 )}
             </div>
 
-            {/* BOTÃO DE AÇÃO RÁPIDA (SEMPRE VISÍVEL) */}
-            {activeGame.id !== 'federal' && (
+            {/* BOTÃO DE AÇÃO RÁPIDA */}
+            {activeGame.id !== 'federal' && safeDezenas.length > 0 && (
                 <div className="flex justify-end -mt-2">
                         <button 
                         onClick={handleImport}
@@ -194,10 +192,8 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                 </div>
             )}
             
-            {/* LISTA DE PREMIAÇÃO (CONTAINER) */}
             {displayPrizes.length > 0 && activeGame.id !== 'federal' && (
                 <div className="bg-slate-900/90 rounded-xl border border-white/10 shadow-xl relative overflow-hidden animate-slide-down">
-                        {/* CABEÇALHO DO CARD DE PREMIAÇÃO COM TOGGLE */}
                         <div 
                             onClick={() => setIsMinimized(!isMinimized)}
                             className={`p-4 flex justify-between items-center cursor-pointer hover:bg-white/5 transition-colors ${!isMinimized ? 'border-b border-white/5' : ''}`}
@@ -213,7 +209,6 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                              </div>
                         </div>
                         
-                        {/* CONTEÚDO EXPANSÍVEL */}
                         {!isMinimized && (
                             <div className="animate-fade-in">
                                 <div className="space-y-4 max-h-[240px] overflow-y-auto pr-2 custom-scrollbar p-5 pt-4">
@@ -244,7 +239,6 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                                     })}
                                 </div>
 
-                                {/* ARRECADAÇÃO TOTAL */}
                                 <div className="border-t border-slate-700 bg-black/20 px-5 py-3">
                                     <div className="flex justify-between items-center">
                                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -263,7 +257,6 @@ const LatestResultCard: React.FC<LatestResultCardProps> = ({
                 </div>
             )}
 
-            {/* PRÓXIMO SORTEIO (SEMPRE VISÍVEL SE FOR O ÚLTIMO) */}
             {isLatest && result.dataProximoConcurso && (
                 <div className="mt-4 bg-black/30 backdrop-blur-md rounded-xl p-0.5 border border-white/10 relative overflow-hidden">
                         <div className="px-4 py-3 flex justify-between items-center border-b border-white/5 bg-white/5">

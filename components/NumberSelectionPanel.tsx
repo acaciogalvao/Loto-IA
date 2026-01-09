@@ -1,274 +1,345 @@
 
-import React, { useMemo } from 'react';
-import NumberBall from './NumberBall';
+import React, { useMemo, useState } from 'react';
 import { GameConfig, AppStatus } from '../types';
-import { calculateDetailedStats, calculateGameScore, getBalanceStatus } from '../utils/lotteryLogic';
 
 interface NumberSelectionPanelProps {
   activeGame: GameConfig;
   selectedNumbers: Set<number>;
-  onToggleNumber: (num: number) => void;
+  fixedNumbers?: Set<number>;
+  onToggleNumber: (num: number, isFixing: boolean) => void;
   gameSize: number;
   onAutoSelectSize: (size: number) => void;
-  generationLimit: number | string;
-  setGenerationLimit: (limit: number | string) => void;
-  closingMethod: 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode';
-  setClosingMethod: (method: 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode') => void;
-  status: AppStatus;
+  generationLimit?: number | string;
+  setGenerationLimit?: (limit: number | string) => void;
+  closingMethod?: any;
+  setClosingMethod?: (method: any) => void;
+  status?: AppStatus;
   resultNumbers?: Set<number>;
-  onOpenAnalysis: () => void;
+  onOpenAnalysis?: () => void;
   selectedTeam?: string | null; 
-  onSelectTeam?: (team: string) => void; 
+  onSelectTeam?: (team: string) => void;
+  isFixMode?: boolean;
+  setIsFixMode?: (val: boolean) => void;
+  targetFixedCount?: number;
+  setTargetFixedCount?: (val: number) => void;
+  onAiSuggestion?: () => void;
 }
+
+interface VolanteCheckboxProps {
+    label: string | number;
+    isSelected: boolean;
+    onClick: () => void;
+    isSmall?: boolean;
+    themeColor: string;
+}
+
+// Sub-componente seguro
+const VolanteCheckbox: React.FC<VolanteCheckboxProps> = ({ 
+    label, 
+    isSelected, 
+    onClick, 
+    isSmall = false,
+    themeColor
+}) => (
+    <div 
+        onClick={onClick}
+        className="flex flex-col items-center cursor-pointer group select-none"
+    >
+        <div 
+            className={`
+                border border-solid transition-colors relative flex items-center justify-center
+                ${isSmall ? 'w-8 h-5 text-[9px]' : 'w-10 h-6 text-[10px]'}
+            `}
+            style={{ 
+                borderColor: themeColor,
+                backgroundColor: isSelected ? '#1e293b' : 'white',
+            }}
+        >
+            <span className={`font-bold ${isSelected ? 'text-white' : 'text-slate-500'}`} style={!isSelected ? { color: themeColor } : {}}>
+                {label}
+            </span>
+            {isSelected && (
+                <div className="absolute inset-0 bg-slate-900 flex items-center justify-center">
+                     <div className="w-[80%] h-[2px] bg-slate-700 rotate-45 absolute"></div>
+                </div>
+            )}
+        </div>
+    </div>
+);
 
 const NumberSelectionPanel: React.FC<NumberSelectionPanelProps> = ({
   activeGame,
   selectedNumbers,
+  fixedNumbers = new Set(),
   onToggleNumber,
   gameSize,
   onAutoSelectSize,
+  isFixMode = false,
+  setIsFixMode,
+  onAiSuggestion,
+  targetFixedCount = 0,
+  setTargetFixedCount,
   generationLimit,
   setGenerationLimit,
-  closingMethod,
-  setClosingMethod,
-  status,
-  resultNumbers,
-  onOpenAnalysis,
-  selectedTeam,
-  onSelectTeam
+  closingMethod
 }) => {
-  if (activeGame.id === 'federal') return null;
+  // Estados locais visuais (Hooks devem vir antes de qualquer retorno)
+  const [teimosinhaSelection, setTeimosinhaSelection] = useState<number | null>(null);
+  const [bolaoCotas, setBolaoCotas] = useState<string>('');
 
+  // Cálculos Seguros (Hooks)
   const allNumbers = useMemo(() => {
-    if (activeGame.id === 'supersete') {
-        const nums = [];
-        for (let val = 0; val <= 9; val++) { 
-            for (let col = 0; col < 7; col++) { 
-                nums.push(col * 10 + val);
+    if (!activeGame) return [];
+    try {
+        if (activeGame.id === 'supersete') {
+            const nums = [];
+            for (let val = 0; val <= 9; val++) { 
+                for (let col = 0; col < 7; col++) { nums.push(col * 10 + val); }
             }
+            return nums;
         }
-        return nums;
+        if (activeGame.id === 'lotomania') {
+            return Array.from({ length: 100 }, (_, i) => i);
+        }
+        const total = Number(activeGame.totalNumbers) || 25; 
+        return Array.from({ length: total }, (_, i) => i + 1);
+    } catch (e) {
+        return [];
     }
-    if (activeGame.id === 'lotomania') {
-        return Array.from({ length: 100 }, (_, i) => i);
-    }
-    return Array.from({ length: activeGame.totalNumbers }, (_, i) => i + 1);
-  }, [activeGame.id, activeGame.totalNumbers]);
+  }, [activeGame?.id, activeGame?.totalNumbers]);
 
-  const selectionCount = selectedNumbers.size;
+  // Verificação de Segurança (Agora é seguro retornar, pois os hooks já foram chamados)
+  if (!activeGame || activeGame.id === 'federal') return null;
 
-  // Real-time Stats Calculation
-  const { realTimeStats, optimizationScore } = useMemo(() => {
-      if (selectionCount === 0) return { realTimeStats: null, optimizationScore: 0 };
-      const nums = (Array.from(selectedNumbers) as number[]).sort((a,b) => a-b);
-      const stats = calculateDetailedStats(nums, undefined, activeGame);
-      const score = calculateGameScore(nums, activeGame);
-      return { realTimeStats: stats, optimizationScore: score };
-  }, [selectedNumbers, activeGame, selectionCount]);
+  const selectionCount = selectedNumbers ? selectedNumbers.size : 0;
+  
+  // Fallback de Tema
+  const themeColor = activeGame.theme?.primary || '#6b7280'; 
 
-  const methods = [
-      { id: 'smart_pattern', label: 'Padrão Ouro' },
-      { id: 'reduced', label: 'Fechamento' },
-      { id: 'guaranteed', label: 'Matemático' },
-      { id: 'free_mode', label: 'Modo Livre' }
-  ];
-
-  // Helper de Cor para Stats
-  const getStatusColor = (status: 'ideal' | 'warn' | 'bad') => {
-      if (status === 'ideal') return 'text-emerald-400';
-      if (status === 'warn') return 'text-yellow-400';
-      return 'text-red-400';
-  };
+  // Ranges seguros
+  const minSel = activeGame.minSelection || 15;
+  const maxSel = activeGame.maxSelection || 18;
+  const safeRange = Math.min(20, Math.max(1, maxSel - minSel + 1)); 
 
   return (
-    <div className="space-y-4">
-      {/* ÁREA DE CONTROLES COMPACTA */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-3 shadow-lg">
-          
-          {/* Seletor de Quantidade de Dezenas */}
-          <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Dezenas no Jogo</span>
-              <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-700 overflow-x-auto max-w-[200px] no-scrollbar">
-                {Array.from({ length: activeGame.maxSelection - activeGame.minSelection + 1 }, (_, i) => activeGame.minSelection + i).map(size => {
-                    const isActive = gameSize === size;
-                    return (
-                    <button
-                        key={size}
-                        onClick={() => onAutoSelectSize(size)}
-                        className={`min-w-[28px] h-[24px] rounded text-[10px] font-bold transition-all flex items-center justify-center ${!isActive ? 'text-slate-500 hover:text-slate-300' : 'text-white shadow-sm'}`}
-                        style={isActive ? { backgroundColor: activeGame.theme.primary } : {}}
-                    >
-                        {size}
-                    </button>
-                )})}
-              </div>
-          </div>
-
-          <div className="h-px bg-slate-700/50 w-full mb-3"></div>
-
-          {/* Configurações de Geração - Botões e Input */}
-          <div className="flex flex-col gap-2">
-              <div className="flex justify-between items-center">
-                  <span className="text-[9px] text-slate-500 font-bold uppercase">Método de Geração</span>
-                  <div className="flex items-center gap-2">
-                       <span className="text-[9px] text-slate-500 font-bold uppercase">Qtd. Jogos</span>
-                       <input 
-                          type="number" 
-                          min="1" 
-                          max="200"
-                          value={generationLimit}
-                          onChange={(e) => setGenerationLimit(e.target.value)}
-                          disabled={closingMethod === 'free_mode'}
-                          className={`w-12 bg-slate-900 text-white text-[10px] font-bold border border-slate-600 rounded-md px-1 py-1 text-center outline-none focus:border-blue-500 transition-opacity ${closingMethod === 'free_mode' ? 'opacity-50 cursor-not-allowed text-slate-400' : ''}`}
-                      />
-                  </div>
-              </div>
+    <div className="w-full flex justify-center py-4 bg-slate-900/50">
+      <div 
+        className="relative w-full max-w-[400px] bg-[#fffbeb] shadow-2xl overflow-hidden print:shadow-none transition-all"
+        style={{ 
+            boxShadow: '0 0 15px rgba(0,0,0,0.3)',
+            borderLeft: '4px dashed rgba(0,0,0,0.1)',
+            borderRight: '4px dashed rgba(0,0,0,0.1)'
+        }}
+      >
+          {/* HEADER */}
+          <div 
+            className="h-24 relative flex items-center px-6 overflow-hidden"
+            style={{ backgroundColor: themeColor }}
+          >
+              <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
               
-              <div className="flex flex-wrap gap-2">
-                  {methods.map((method) => {
-                      const isActive = closingMethod === method.id;
-                      return (
-                          <button
-                              key={method.id}
-                              onClick={() => setClosingMethod(method.id as any)}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${isActive 
-                                  ? 'text-white border-transparent shadow-md transform scale-105' 
-                                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500 hover:text-slate-200'}`}
-                              style={isActive ? { backgroundColor: activeGame.theme.primary } : {}}
-                          >
-                              {method.label}
-                          </button>
-                      );
-                  })}
-                  
-                  {/* Botão Raio-X Integrado */}
-                  <button
-                      onClick={onOpenAnalysis}
-                      className="px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-indigo-500/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-900/40 hover:text-indigo-100 flex items-center gap-1 ml-auto"
-                  >
-                      <span>🔍</span> Raio-X
-                  </button>
-              </div>
-          </div>
-      </div>
+              <div className="flex items-center gap-3 relative z-10 w-full">
+                   <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg transform -rotate-12">
+                       <span className="text-2xl font-black" style={{ color: themeColor }}>
+                           {activeGame.name ? activeGame.name[0] : 'L'}
+                       </span>
+                   </div>
+                   
+                   <div className="flex flex-col text-white flex-1">
+                       <h1 className="text-3xl font-black italic tracking-tighter uppercase leading-none shadow-black drop-shadow-md">
+                           {activeGame.name || 'LOTERIA'}
+                       </h1>
+                       <span className="text-[10px] font-medium tracking-widest opacity-90 uppercase">
+                           Aposte e Ganhe
+                       </span>
+                   </div>
 
-      {/* Real-time Stats Dashboard (Medidor de Qualidade) */}
-      {realTimeStats && selectionCount > activeGame.minSelection / 2 && (
-        <div className="bg-slate-900/80 border border-slate-700 rounded-lg p-3 animate-fade-in backdrop-blur-sm shadow-md">
-            
-            {/* IO: Índice de Otimização */}
-            <div className="mb-2">
-                <div className="flex justify-between items-end mb-1">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Qualidade da Seleção (IO)</span>
-                    <span className={`text-xs font-black ${optimizationScore > 75 ? 'text-emerald-400' : (optimizationScore > 50 ? 'text-yellow-400' : 'text-red-400')}`}>
-                        {optimizationScore}/100
-                    </span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
-                    <div 
-                        className={`h-full transition-all duration-500 ${optimizationScore > 75 ? 'bg-emerald-500' : (optimizationScore > 50 ? 'bg-yellow-500' : 'bg-red-500')}`} 
-                        style={{ width: `${optimizationScore}%` }}
-                    ></div>
-                </div>
-            </div>
-
-            <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-800">
-                <div className="flex items-center gap-2">
-                    <span className="text-slate-500">Pares: <strong className={getStatusColor(getBalanceStatus(realTimeStats.pares, Math.floor(selectionCount/2)-1, Math.ceil(selectionCount/2)+1))}>{realTimeStats.pares}</strong></span>
-                    <span className="w-px h-2 bg-slate-700"></span>
-                    <span className="text-slate-500">Ímpares: <strong className={getStatusColor(getBalanceStatus(realTimeStats.impares, Math.floor(selectionCount/2)-1, Math.ceil(selectionCount/2)+1))}>{realTimeStats.impares}</strong></span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-slate-500">Soma: <strong className={activeGame.id === 'lotofacil' ? getStatusColor(getBalanceStatus(realTimeStats.soma, 180, 220)) : 'text-slate-200'}>{realTimeStats.soma}</strong></span>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* O VOLANTE FÍSICO SIMULADO */}
-      <div className="relative isolate">
-          {/* Shadow Behind */}
-          <div className="absolute inset-0 bg-white/5 blur-xl rounded-xl -z-10 translate-y-2"></div>
-          
-          <div className="bg-slate-100 rounded-xl overflow-hidden shadow-2xl relative border border-slate-300/50">
-              
-              {/* Header do Volante */}
-              <div className="px-4 py-3 flex justify-between items-center bg-white border-b border-slate-200 shadow-sm relative z-20">
-                  <div className="flex items-center gap-2">
-                      <div 
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm"
-                        style={{ backgroundColor: activeGame.theme.primary }}
-                      >
-                           {activeGame.name[0]}
-                      </div>
-                      <div>
-                          <span className="block text-xs font-bold text-slate-700 leading-none">{activeGame.name}</span>
-                          <span className="text-[9px] text-slate-400 font-medium">Selecione os números</span>
-                      </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                       {/* Legenda do Último Sorteio */}
-                       {resultNumbers && resultNumbers.size > 0 && (
-                          <div className="flex items-center gap-1 bg-yellow-50 px-2 py-0.5 rounded-full border border-yellow-200">
-                              <div className="w-2 h-2 rounded-full border-2 border-yellow-400"></div>
-                              <span className="text-[8px] font-bold text-yellow-600 uppercase">Último</span>
-                          </div>
-                       )}
-                       
-                       <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200">
-                           <span className={`text-sm font-mono font-bold ${selectionCount === activeGame.maxSelection ? 'text-red-500' : 'text-slate-600'}`}>
-                               {selectionCount}<span className="text-slate-400 text-[10px]">/{activeGame.maxSelection}</span>
+                   <div className="flex flex-col items-end">
+                       <div className="bg-white/20 px-2 py-1 rounded text-center backdrop-blur-sm border border-white/30">
+                           <span className="block text-[9px] uppercase font-bold text-white/80">Marcados</span>
+                           <span className="text-xl font-mono font-black text-white leading-none">
+                               {selectionCount}
                            </span>
                        </div>
-                  </div>
+                   </div>
               </div>
+          </div>
 
-              {/* A GRADE DE NÚMEROS */}
-              <div className="p-4 bg-[#f8fafc] relative">
-                  
-                  {/* CABEÇALHO DE COLUNAS SUPER SETE */}
-                  {activeGame.id === 'supersete' && (
-                      <div 
-                        className="grid gap-x-1.5 mb-2 relative z-10 mx-auto justify-items-center"
-                        style={{ 
-                            gridTemplateColumns: `repeat(${activeGame.cols}, minmax(0, 1fr))`,
-                            maxWidth: activeGame.cols > 7 ? '100%' : '320px' 
-                        }}
-                      >
-                          {[1,2,3,4,5,6,7].map(c => (
-                              <div key={c} className="flex items-center justify-center w-full">
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Col {c}</span>
-                              </div>
-                          ))}
-                      </div>
-                  )}
+          {/* INSTRUÇÕES */}
+          <div className="px-4 py-2 bg-[#fffbeb]">
+             <p className="text-[9px] text-slate-500 font-bold uppercase tracking-tight text-justify leading-tight">
+                 MARQUE DE <strong style={{color: themeColor}}>{minSel}</strong> A <strong style={{color: themeColor}}>{maxSel}</strong> NÚMEROS.
+                 {isFixMode ? <span className="text-amber-600 ml-1">MODO FIXAR: ATIVADO.</span> : ''}
+             </p>
+          </div>
 
-                  <div 
-                    className="grid gap-x-1.5 gap-y-2 relative z-10 mx-auto justify-items-center"
+          {/* GRADE */}
+          <div className="px-3 pb-4">
+               {setIsFixMode && (
+                   <div className="flex justify-end mb-1">
+                       <button 
+                          onClick={() => setIsFixMode(!isFixMode)}
+                          className="text-[9px] uppercase font-bold flex items-center gap-1 hover:underline"
+                          style={{ color: isFixMode ? '#d97706' : '#94a3b8' }}
+                       >
+                           {isFixMode ? '🔒 Fixar Ativado' : '🔓 Ativar Fixas'}
+                       </button>
+                   </div>
+               )}
+
+               <div 
+                    className="grid gap-x-1 gap-y-1.5 mx-auto justify-items-center select-none"
                     style={{ 
-                        gridTemplateColumns: `repeat(${activeGame.cols}, minmax(0, 1fr))`,
-                        maxWidth: activeGame.cols > 7 ? '100%' : '320px' 
+                        gridTemplateColumns: `repeat(${activeGame.cols || 5}, 1fr)`,
                     }}
-                  >
-                    {allNumbers.map(number => (
-                      <NumberBall
-                        key={number}
-                        number={number}
-                        label={activeGame.id === 'supersete' ? (number % 10).toString() : undefined}
-                        isSelected={selectedNumbers.has(number)}
-                        isRecentResult={resultNumbers ? resultNumbers.has(number) : false}
-                        onClick={onToggleNumber}
-                        activeGame={activeGame}
-                        size={activeGame.totalNumbers > 60 ? 'small' : 'medium'}
-                      />
-                    ))}
+               >
+                    {allNumbers.map(number => {
+                        const isSelected = selectedNumbers.has(number);
+                        const isFixed = fixedNumbers?.has(number);
+                        
+                        return (
+                            <div 
+                                key={number}
+                                onClick={() => onToggleNumber(number, isFixMode)}
+                                className="relative w-full aspect-[1.1/1] cursor-pointer group"
+                            >
+                                <div 
+                                    className="w-full h-full flex items-center justify-center border transition-all duration-100 relative"
+                                    style={{
+                                        borderColor: themeColor,
+                                        backgroundColor: isSelected 
+                                            ? (isFixed ? '#d97706' : '#1e293b') 
+                                            : 'white',
+                                        borderWidth: '1px'
+                                    }}
+                                >
+                                    <span 
+                                        className={`text-xs font-bold z-10 ${isSelected ? 'text-white' : ''}`}
+                                        style={!isSelected ? { color: themeColor } : {}}
+                                    >
+                                        {activeGame.id === 'supersete' ? number % 10 : number.toString().padStart(2, '0')}
+                                    </span>
+                                    
+                                    {isSelected && !isFixed && (
+                                        <div className="absolute inset-0 bg-slate-800 flex items-center justify-center">
+                                            <div className="w-[60%] h-[3px] bg-slate-600 rounded-full rotate-45 absolute"></div>
+                                        </div>
+                                    )}
+
+                                    {isFixed && (
+                                        <span className="absolute -top-1 -right-1 text-[8px]">🔒</span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+               </div>
+          </div>
+
+          <div className="border-t border-dashed border-slate-300 mx-2"></div>
+
+          {/* RODAPÉ OPÇÕES */}
+          <div className="p-4 space-y-5 bg-yellow-50/50">
+              
+              {/* QUANTIDADE DE NÚMEROS */}
+              <div>
+                  <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: themeColor }}>
+                      Quantidade de Números por Jogo:
+                  </label>
+                  <div className="flex flex-wrap gap-2 items-center">
+                      {Array.from({ length: safeRange }, (_, i) => minSel + i).map(qty => (
+                          <VolanteCheckbox 
+                             key={qty}
+                             label={qty} 
+                             isSelected={gameSize === qty} 
+                             onClick={() => onAutoSelectSize(qty)}
+                             themeColor={themeColor}
+                          />
+                      ))}
                   </div>
               </div>
-              
-              {/* Footer decorativo do volante */}
-              <div className="bg-white p-2 border-t border-slate-200 flex justify-center">
-                   <div className="w-16 h-1 bg-slate-200 rounded-full"></div>
+
+              {/* QUANTIDADE DE JOGOS A GERAR */}
+              {closingMethod !== 'free_mode' && setGenerationLimit && (
+                   <div>
+                       <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: themeColor }}>
+                          Quantidade de Jogos a Gerar:
+                       </label>
+                       <div className="flex flex-wrap gap-2 items-center">
+                           {[5, 10, 15, 20, 50, 100].map(limit => (
+                               <VolanteCheckbox 
+                                   key={limit}
+                                   label={limit} 
+                                   isSelected={Number(generationLimit) === limit}
+                                   onClick={() => setGenerationLimit(limit)}
+                                   isSmall
+                                   themeColor={themeColor}
+                               />
+                           ))}
+                       </div>
+                  </div>
+              )}
+
+              {/* SURPRESINHA */}
+              {onAiSuggestion && (
+                  <div>
+                       <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: themeColor }}>
+                          Surpresinha (IA):
+                       </label>
+                       <div className="flex gap-2">
+                           <button 
+                              onClick={onAiSuggestion}
+                              className="flex items-center gap-2 border px-3 py-1 bg-white hover:bg-slate-50 transition-colors"
+                              style={{ borderColor: themeColor }}
+                           >
+                               <div className="w-8 h-4 bg-white border border-slate-300"></div>
+                               <span className="text-[9px] font-bold text-slate-600 uppercase">Gerar Palpite</span>
+                           </button>
+                       </div>
+                  </div>
+              )}
+
+              {/* TEIMOSINHA */}
+              <div>
+                   <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: themeColor }}>
+                      Teimosinha:
+                   </label>
+                   <div className="flex gap-2">
+                       {[3, 6, 12, 18, 24].map(val => (
+                           <VolanteCheckbox 
+                               key={val}
+                               label={val} 
+                               isSelected={teimosinhaSelection === val}
+                               onClick={() => setTeimosinhaSelection(prev => prev === val ? null : val)}
+                               isSmall
+                               themeColor={themeColor}
+                           />
+                       ))}
+                   </div>
               </div>
+
+              {/* BOLÃO */}
+              <div>
+                   <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: themeColor }}>
+                      Bolão - Cotas:
+                   </label>
+                   <div className="flex items-center gap-2 border p-1 w-24 bg-white" style={{ borderColor: themeColor }}>
+                        <input 
+                            type="number" 
+                            className="w-full text-center font-mono font-bold text-slate-800 outline-none text-sm bg-transparent"
+                            placeholder="0"
+                            value={bolaoCotas}
+                            onChange={(e) => setBolaoCotas(e.target.value)}
+                        />
+                   </div>
+              </div>
+
+          </div>
+          
+          <div className="bg-slate-200 p-2 flex justify-center items-center gap-2 border-t border-slate-300">
+               <div className="w-3 h-3 bg-black"></div>
+               <span className="text-[8px] font-mono text-slate-500 uppercase">LotoSmart AI</span>
+               <div className="w-3 h-3 bg-black"></div>
           </div>
       </div>
     </div>

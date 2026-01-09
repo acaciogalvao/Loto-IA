@@ -1,8 +1,9 @@
 
-import { LotteryResult, PastGameResult, PrizeEntry, WinnerLocation } from '../types';
+import { LotteryResult, PastGameResult, PrizeEntry } from '../types';
+import { getStoredResults, saveStoredResults } from './storageService';
+import { supabase } from './supabaseClient'; // Ensure supabase is imported here if used directly, or logic remains in storageService
 
 const API_URL = 'https://api.guidi.dev.br/loteria';
-const BACKUP_API_URL = 'https://loteriascaixa-api.herokuapp.com/api';
 
 // Helper robusto para fetch com retry e backoff exponencial
 const fetchWithRetry = async (url: string, retries = 3, backoff = 1000): Promise<Response> => {
@@ -47,7 +48,7 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
 
   // --- CORREÇÃO DE LOCALIZAÇÃO ---
   // A lista de ganhadores vem na raiz do objeto e refere-se à faixa principal.
-  const locaisGanhadores: WinnerLocation[] = (data.listaMunicipioUFGanhadores || []).map((m: any) => ({
+  const locaisGanhadores = (data.listaMunicipioUFGanhadores || []).map((m: any) => ({
       cidade: m.municipio,
       uf: m.uf,
       ganhadores: m.ganhadores || 1
@@ -63,6 +64,7 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
       } else {
           // Nas outras (Lotofácil, Mega, etc), a maior faixa numérica é a principal.
           // Como o array 'premios' está ordenado ascendente por faixa, pegamos o último item.
+          // (Ex: Lotofácil vai de 11 a 15, o último é 15).
           faixaPrincipal = premios[premios.length - 1];
       }
 
@@ -74,54 +76,20 @@ const mapApiToResult = (data: any, gameSlug: string): LotteryResult => {
 
   return {
     concurso: data.numero,
-    data: data.dataApuracao,
-    dezenas: data.listaDezenas,
+    data: data.dataApuracao || '',
+    dezenas: Array.isArray(data.listaDezenas) ? data.listaDezenas : [], // Defensive
     acumulou: data.acumulado,
     ganhadores15: premios.find(p => p.faixa === 15)?.ganhadores || 0,
     proximoConcurso: data.numeroConcursoProximo,
-    dataProximoConcurso: data.dataProximoConcurso,
-    valorEstimadoProximoConcurso: data.valorEstimadoProximoConcurso,
-    valorAcumuladoProximoConcurso: data.valorAcumuladoProximoConcurso,
+    dataProximoConcurso: data.dataProximoConcurso || '',
+    valorEstimadoProximoConcurso: data.valorEstimadoProximoConcurso || 0,
+    valorAcumuladoProximoConcurso: data.valorAcumuladoProximoConcurso || 0,
     valorAcumulado: data.valorAcumuladoConcurso_0_5 || 0,
     valorAcumuladoEspecial: data.valorAcumuladoConcursoEspecial || 0,
-    valorArrecadado: data.valorArrecadado || 0,
-    premiacoes: premios
+    valorArrecadado: data.valorArrecadado || 0, // Mapeamento direto
+    premiacoes: premios,
+    timeCoracao: data.nomeTimeCoracao // Mapeamento Timemania
   };
-};
-
-/**
- * Mapeia o resultado da API de Backup (Heroku) para o formato interno
- */
-const mapBackupApiToResult = (data: any): PastGameResult => {
-    const premios: PrizeEntry[] = (data.premiacoes || []).map((p: any) => ({
-        faixa: p.faixa,
-        ganhadores: p.ganhadores,
-        valor: p.valorPremio,
-        bilhete: p.descricao,
-        locais: []
-    }));
-
-    const locaisGanhadores: WinnerLocation[] = (data.localGanhadores || []).map((l: any) => ({
-        cidade: l.municipio,
-        uf: l.uf,
-        ganhadores: l.ganhadores || 1
-    }));
-
-    // Atribui locais à faixa principal (geralmente faixa 1 na API Heroku)
-    if (locaisGanhadores.length > 0 && premios.length > 0) {
-        const principal = premios.find(p => p.faixa === 1) || premios[0];
-        if (principal) principal.locais = locaisGanhadores;
-    }
-
-    return {
-        concurso: data.concurso,
-        data: data.data,
-        dezenas: data.dezenas,
-        premiacoes: premios,
-        valorAcumulado: data.valorAcumuladoConcurso_0_5,
-        valorEstimadoProximoConcurso: data.valorEstimadoProximoConcurso,
-        valorArrecadado: data.valorArrecadado
-    };
 };
 
 export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult | null> => {
@@ -134,130 +102,164 @@ export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult
     const data = await response.json();
     return mapApiToResult(data, gameSlug);
   } catch (error) {
-    console.error("Erro ao buscar último resultado:", error);
+    console.error("Erro ao buscar último resultado (Possível problema de CORS ou API fora do ar):", error);
     return null;
   }
 };
 
 export const fetchResultByConcurso = async (gameSlug: string, concurso: number): Promise<PastGameResult | null> => {
   try {
-    // Tenta API principal
-    const response = await fetchWithRetry(`${API_URL}/${gameSlug}/${concurso}`);
-    if (response.ok) {
-        const data = await response.json();
-        const result = mapApiToResult(data, gameSlug);
-        return {
-            concurso: result.concurso,
-            data: result.data,
-            dezenas: result.dezenas,
-            premiacoes: result.premiacoes,
-            valorAcumulado: result.valorAcumulado,
-            valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso,
-            valorArrecadado: result.valorArrecadado
-        };
-    }
-    
-    // Fallback para API de Backup
-    const backupResponse = await fetchWithRetry(`${BACKUP_API_URL}/${gameSlug}/${concurso}`);
-    if (backupResponse.ok) {
-        const data = await backupResponse.json();
-        return mapBackupApiToResult(data);
+    // 1. Tenta buscar no cache do Supabase primeiro (para buscas avulsas)
+    const dbResults = await getStoredResults(gameSlug, concurso, concurso);
+    if (dbResults.length > 0) {
+        return dbResults[0];
     }
 
-    return null;
+    // 2. Se não tem, busca na API
+    const response = await fetchWithRetry(`${API_URL}/${gameSlug}/${concurso}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const result = mapApiToResult(data, gameSlug);
+    
+    const pastResult: PastGameResult = {
+        concurso: result.concurso,
+        data: result.data,
+        dezenas: result.dezenas,
+        premiacoes: result.premiacoes,
+        valorAcumulado: result.valorAcumulado,
+        valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso,
+        valorArrecadado: result.valorArrecadado,
+        timeCoracao: result.timeCoracao
+    };
+
+    // 3. Salva no Supabase para o futuro (Fire & Forget)
+    saveStoredResults(gameSlug, [pastResult]);
+
+    return pastResult;
   } catch (error) {
     console.error(`Erro ao buscar concurso ${concurso}:`, error);
     return null;
   }
 };
 
-// CACHE KEY ATUALIZADA PARA V5 (Com suporte a localização aprimorado)
-export const getFullHistoryWithCache = async (
+// --- NOVA LÓGICA DE FETCHING OTIMIZADA (STREAMING) ---
+
+const fetchFromApiBatch = async (
     gameSlug: string, 
-    latestConcurso: number, 
+    concursos: number[], 
+    onDataReceived?: (data: PastGameResult[]) => void,
     onProgress?: (percent: number) => void
 ): Promise<PastGameResult[]> => {
-    const CACHE_KEY = `lotosmart_history_v5_${gameSlug}`;
+    const results: PastGameResult[] = [];
+    let completed = 0;
+    const total = concursos.length;
+
+    // PERFORMANCE: Aumentado para 80 para velocidade extrema
+    const CHUNK_SIZE = 80; 
     
-    let cachedHistory: PastGameResult[] = [];
-    try {
-        const stored = localStorage.getItem(CACHE_KEY);
-        if (stored) {
-            cachedHistory = JSON.parse(stored);
+    for (let i = 0; i < concursos.length; i += CHUNK_SIZE) {
+        const chunk = concursos.slice(i, i + CHUNK_SIZE);
+        
+        // Executa em paralelo real
+        const promises = chunk.map(concurso => 
+            fetchWithRetry(`${API_URL}/${gameSlug}/${concurso}`, 1, 300)
+                .then(res => res.ok ? res.json() : null)
+                .catch(() => null)
+        );
+
+        const dataChunk = await Promise.all(promises);
+        const validChunkResults: PastGameResult[] = [];
+        
+        dataChunk.forEach(data => {
+            if (data) {
+                const result = mapApiToResult(data, gameSlug);
+                const pastResult = {
+                    concurso: result.concurso,
+                    data: result.data,
+                    dezenas: result.dezenas,
+                    premiacoes: result.premiacoes,
+                    valorAcumulado: result.valorAcumulado,
+                    valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso,
+                    valorArrecadado: result.valorArrecadado,
+                    timeCoracao: result.timeCoracao
+                };
+                validChunkResults.push(pastResult);
+                results.push(pastResult);
+            }
+        });
+
+        // 1. Envia dados para a UI imediatamente (Streaming)
+        if (validChunkResults.length > 0 && onDataReceived) {
+            onDataReceived(validChunkResults);
         }
-    } catch (e) {
-        console.warn("Erro ao ler cache de histórico", e);
-    }
 
-    cachedHistory.sort((a, b) => b.concurso - a.concurso);
-    const lastCachedConcurso = cachedHistory.length > 0 ? cachedHistory[0].concurso : 0;
-    
-    if (lastCachedConcurso >= latestConcurso) {
-        if(onProgress) onProgress(100);
-        return cachedHistory;
-    }
+        // 2. Salva INCREMENTALMENTE (Background)
+        if (validChunkResults.length > 0) {
+            saveStoredResults(gameSlug, validChunkResults).catch(err => console.error("Background save failed", err));
+        }
 
-    const startFetch = lastCachedConcurso + 1;
-    const endFetch = latestConcurso;
-    
-    // Otimização: Se faltar muito dado, busca em lotes maiores
-    const newResults = await fetchResultsRange(gameSlug, startFetch, endFetch, onProgress);
-    const combinedHistory = [...newResults, ...cachedHistory].sort((a, b) => b.concurso - a.concurso);
-    
-    try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(combinedHistory));
-    } catch (e) {
-        console.error("Storage Full - Could not cache full history", e);
-        // Se o cache estiver cheio, mantém apenas os últimos 500 resultados para não quebrar o app
-        const limitedHistory = combinedHistory.slice(0, 500);
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(limitedHistory)); } catch(e2) {}
+        completed += chunk.length;
+        if (onProgress) onProgress(Math.floor((completed / total) * 100));
     }
-
-    return combinedHistory;
+    
+    return results;
 };
 
 export const fetchResultsRange = async (
     gameSlug: string, 
     startConcurso: number, 
     endConcurso: number,
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number) => void,
+    onNewData?: (data: PastGameResult[]) => void // Novo callback para streaming
 ): Promise<PastGameResult[]> => {
-  const results: PastGameResult[] = [];
-  const total = endConcurso - startConcurso + 1;
-  let completed = 0;
   
-  // OTIMIZAÇÃO: Aumentado para 10 requisições paralelas
-  const BATCH_SIZE = 10; 
+  if (onProgress) onProgress(5);
+
+  // 1. Busca TUDO o que temos no Banco/Local
+  const dbResults = await getStoredResults(gameSlug, startConcurso, endConcurso);
   
-  for (let i = startConcurso; i <= endConcurso; i += BATCH_SIZE) {
-      const batchPromises = [];
-      for (let j = 0; j < BATCH_SIZE; j++) {
-          const current = i + j;
-          if (current > endConcurso) break;
-          batchPromises.push(fetchResultByConcurso(gameSlug, current));
-      }
-      
-      try {
-        const batchResults = await Promise.all(batchPromises);
-        batchResults.forEach(res => {
-            if (res) results.push(res);
-        });
-      } catch (e) {
-        console.error("Erro no lote de requisições", e);
-      }
-      
-      completed += batchPromises.length;
-      if (onProgress) onProgress(Math.floor((completed / total) * 100));
-      
-      // OTIMIZAÇÃO: Reduzido delay para 50ms (apenas para evitar bloqueio de thread)
-      if (i + BATCH_SIZE <= endConcurso) {
-          await new Promise(r => setTimeout(r, 50));
+  // Entrega o que já temos IMEDIATAMENTE
+  if (dbResults.length > 0 && onNewData) {
+      onNewData(dbResults);
+  }
+
+  const dbConcursosSet = new Set(dbResults.map(r => r.concurso));
+
+  // 2. Identifica buracos
+  const missingConcursos: number[] = [];
+  for (let c = startConcurso; c <= endConcurso; c++) {
+      if (!dbConcursosSet.has(c)) {
+          missingConcursos.push(c);
       }
   }
 
-  return results.sort((a, b) => b.concurso - a.concurso);
+  // Se já temos tudo, finaliza
+  if (missingConcursos.length === 0) {
+      if (onProgress) onProgress(100);
+      return dbResults.sort((a, b) => b.concurso - a.concurso);
+  }
+
+  // 3. Busca apenas os que faltam na API externa com STREAMING
+  const apiResults = await fetchFromApiBatch(
+      gameSlug, 
+      missingConcursos, 
+      (chunkData) => {
+          // Repassa chunks da API para a UI assim que chegam
+          if (onNewData) onNewData(chunkData);
+      },
+      (apiProg) => {
+          if (onProgress) onProgress(10 + Math.floor(apiProg * 0.90));
+      }
+  );
+
+  // 5. Retorna combinado (apenas para consistência, pois a UI já foi atualizada via callback)
+  const combined = [...dbResults, ...apiResults].sort((a, b) => b.concurso - a.concurso);
+  
+  if (onProgress) onProgress(100);
+  return combined;
 };
 
+// Deprecated in favor of fetchResultsRange logic, but kept for compatibility
 export const fetchPastResults = async (gameSlug: string, latestConcurso: number, limit: number): Promise<PastGameResult[]> => {
     const start = Math.max(1, latestConcurso - limit + 1);
     return fetchResultsRange(gameSlug, start, latestConcurso);

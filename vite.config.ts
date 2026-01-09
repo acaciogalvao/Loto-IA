@@ -8,7 +8,6 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        allowedHosts: true, // Permite todos os hosts para evitar o erro de "Blocked request"
       },
       plugins: [react()],
       define: {

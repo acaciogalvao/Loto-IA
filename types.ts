@@ -76,18 +76,9 @@ export interface LotteryResult {
   timeCoracao?: string; // NOVO: Time do Coração para Timemania
 }
 
-export interface NumberProbability {
-  number: number;
-  probability: number; // 0-100
-  status: 'hot' | 'cold' | 'neutral';
-  lastSeen: number; // concursos atrás
-  frequency: number; // % de ocorrência
-}
-
 export interface TrendResult {
   hot: number[];
   cold: number[];
-  probabilities: NumberProbability[];
   analysis: string;
 }
 
@@ -97,10 +88,6 @@ export interface HistoricalAnalysis {
   wins13: number;
   wins12: number;
   wins11: number;
-  totalInvested: number;
-  totalPrize: number;
-  netProfit: number;
-  roi: number;
   probabilityText: string;
   profitabilityIndex: number; // 0-100
 }

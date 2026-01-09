@@ -39,27 +39,88 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
   const resultTeam = resultToUse && 'timeCoracao' in resultToUse ? resultToUse.timeCoracao : null;
   const teamHit = highlightResult && game.team && resultTeam ? game.team.trim().toUpperCase() === resultTeam.trim().toUpperCase() : false;
   
-  // Busca o valor direto da API para essa faixa de acerto
-  // Em Timemania, o prêmio do Time do Coração geralmente é separado. 
-  // O helper calculatePrizeForHits pode precisar de ajuste se for somar, mas aqui trataremos como bônus.
   const prizeValue = (resultToUse && highlightResult) 
     ? calculatePrizeForHits(hits, resultToUse, gameConfig.id)
     : 0;
 
-  // Se acertou o time, soma o prêmio fixo (geralmente R$ 7,50 ou similar, mas vamos pegar da API se possível ou assumir win)
-  // A API Guidi retorna prêmios em listaRateioPremio. O Time do Coração costuma vir como uma faixa específica.
-  // Como simplificação, consideramos vitória se prizeValue > 0 ou teamHit.
+  const isWinner = prizeValue > 0 || teamHit;
+
+  // --- LÓGICA DE CORES POR TIER ---
+  const getTierConfig = (gameId: string, h: number) => {
+    let t = 'none';
+    if (gameId === 'lotofacil') {
+        if (h === 15) t = 'gold';
+        else if (h === 14) t = 'silver';
+        else if (h === 13) t = 'bronze';
+        else if (h >= 11) t = 'green';
+    } else if (gameId === 'megasena' || gameId === 'duplasena') {
+        if (h === 6) t = 'gold';
+        else if (h === 5) t = 'silver';
+        else if (h === 4) t = 'green'; // Mega não tem bronze tipico, 4 é o piso
+    } else if (gameId === 'quina') {
+        if (h === 5) t = 'gold';
+        else if (h === 4) t = 'silver';
+        else if (h === 3) t = 'bronze';
+        else if (h === 2) t = 'green';
+    } else if (gameId === 'lotomania') {
+        if (h === 20) t = 'gold';
+        else if (h === 19) t = 'silver';
+        else if (h === 18) t = 'bronze';
+        else if (h >= 15) t = 'green';
+    } else if (gameId === 'timemania') {
+        if (h === 7) t = 'gold';
+        else if (h === 6) t = 'silver';
+        else if (h === 5) t = 'bronze';
+        else if (h >= 3) t = 'green';
+    } else if (gameId === 'diadesorte') {
+        if (h === 7) t = 'gold';
+        else if (h === 6) t = 'silver';
+        else if (h >= 4) t = 'green';
+    } else if (gameId === 'supersete') {
+        if (h === 7) t = 'gold';
+        else if (h === 6) t = 'silver';
+        else if (h === 5) t = 'bronze';
+        else if (h >= 3) t = 'green';
+    }
+    return t;
+  };
+
+  const getStyles = (t: string) => {
+    switch (t) {
+        case 'gold': return {
+            container: "bg-gradient-to-r from-yellow-950/50 to-amber-900/30 border-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.15)]",
+            badge: "bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 shadow-yellow-500/50 animate-pulse border-yellow-300",
+            text: "text-yellow-400"
+        };
+        case 'silver': return {
+            container: "bg-slate-700/60 border-slate-300 shadow-[0_0_15px_rgba(255,255,255,0.08)]",
+            badge: "bg-slate-200 text-slate-900 border-slate-100 shadow-sm",
+            text: "text-slate-200"
+        };
+        case 'bronze': return {
+            container: "bg-orange-950/40 border-orange-400/70 shadow-[0_0_10px_rgba(249,115,22,0.1)]",
+            badge: "bg-orange-500 text-white border-orange-400",
+            text: "text-orange-400"
+        };
+        case 'green': return {
+            container: "bg-emerald-950/30 border-emerald-500/50 shadow-[inset_0_0_10px_rgba(16,185,129,0.05)]",
+            badge: "bg-emerald-600 text-white border-emerald-500",
+            text: "text-emerald-400"
+        };
+        default: return {
+            container: "bg-slate-900/50 border-slate-800 opacity-60 grayscale-[0.5]",
+            badge: "bg-slate-800 text-slate-500 border-slate-700",
+            text: "text-slate-500"
+        };
+    }
+  };
+
+  const tier = highlightResult ? (isWinner ? getTierConfig(gameConfig.id, hits) : 'none') : 'normal';
   
-  // Regra de vitória (Financeira ou por faixa mínima de acerto)
-  const isWinner = prizeValue > 0 || teamHit || (
-      highlightResult && (
-        (gameConfig.id === 'lotofacil' && hits >= 11) || 
-        (gameConfig.id === 'megasena' && hits >= 4) ||
-        (gameConfig.id === 'quina' && hits >= 2) ||
-        (gameConfig.id === 'supersete' && hits >= 3) ||
-        (gameConfig.id === 'timemania' && hits >= 3)
-      )
-  );
+  // Override para normal state (sem highlight)
+  const styles = tier === 'normal' 
+    ? { container: "bg-slate-900 border-slate-800", badge: "", text: "" } 
+    : getStyles(tier);
 
   const handleShare = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -69,23 +130,10 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
     }
   };
 
-  // --- ESTILOS DINÂMICOS ---
-  let containerClass = "bg-slate-900 border-slate-800";
-  let numbersOpacity = "opacity-100";
-  
-  if (highlightResult) {
-      if (isWinner) {
-          // VENCEDOR: Borda Verde/Dourada e Fundo Sutil
-          containerClass = "bg-emerald-950/20 border-emerald-500/50 shadow-[inset_0_0_20px_rgba(16,185,129,0.05)]";
-      } else {
-          // PERDEDOR: Mais apagado para dar foco aos vencedores
-          containerClass = "bg-slate-900/50 border-slate-800 opacity-70";
-          numbersOpacity = "opacity-60 grayscale";
-      }
-  }
+  const numbersOpacity = tier === 'none' ? "opacity-50" : "opacity-100";
 
   return (
-      <div className={`p-3 rounded-lg border flex flex-col gap-3 transition-all relative group ${containerClass}`}>
+      <div className={`p-3 rounded-lg border flex flex-col gap-3 transition-all duration-300 relative group ${styles.container}`}>
           
           <div className="flex justify-between items-start">
               {/* ESQUERDA: ÍNDICE E NÚMEROS */}
@@ -118,7 +166,7 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
                   </div>
               </div>
 
-              {/* DIREITA: BOTÃO DE DELETAR (Só aparece no hover ou mobile) */}
+              {/* DIREITA: BOTÃO DE DELETAR */}
               <button 
                   onClick={(e) => onDeleteGame(e, batchId, game.id)} 
                   className={`w-6 h-6 flex items-center justify-center rounded transition-colors text-slate-600 hover:text-red-400 hover:bg-slate-800 ${deleteConfirmGameId === game.id ? 'text-red-500 animate-pulse' : ''}`}
@@ -142,10 +190,10 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
           {highlightResult && (
               <div className="flex items-center justify-between pt-2 border-t border-slate-700/30 mt-1">
                   
-                  {/* Status do Acerto */}
+                  {/* Status do Acerto com Cor do Tier */}
                   <div className="flex items-center gap-2">
                       {hits > 0 ? (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${isWinner ? 'bg-emerald-500 text-slate-900' : 'bg-slate-700 text-slate-400'}`}>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border ${styles.badge}`}>
                               {hits} Acertos
                           </span>
                       ) : (
@@ -153,17 +201,16 @@ const SavedGameItem: React.FC<SavedGameItemProps> = ({
                       )}
                   </div>
 
-                  {/* VALOR DO PRÊMIO (EXTRATO) */}
-                  {isWinner && (
+                  {/* VALOR DO PRÊMIO */}
+                  {(isWinner) && (
                       <div className="flex flex-col items-end">
-                          <span className="text-[8px] text-emerald-500/70 font-bold uppercase tracking-wider">Sua Premiação</span>
-                          <span className="text-sm font-mono font-black text-emerald-400 drop-shadow-sm">
+                          <span className={`text-[8px] font-bold uppercase tracking-wider opacity-80 ${styles.text}`}>Sua Premiação</span>
+                          <span className={`text-sm font-mono font-black drop-shadow-sm ${styles.text}`}>
                               {prizeValue > 0 ? formatCurrency(prizeValue) : (teamHit ? 'Time' : '---')}
                           </span>
                       </div>
                   )}
 
-                  {/* Se não ganhou, mostra botão de compartilhar discreto */}
                   {!isWinner && (
                      <button 
                         onClick={handleShare}

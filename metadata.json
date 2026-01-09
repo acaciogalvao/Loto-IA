@@ -1,6 +1,6 @@
 {
   "name": "LotoSmart AI",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Sistema inteligente de fechamento para Lotofácil com análise via Gemini AI",
   "requestFramePermissions": []
 }

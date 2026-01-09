@@ -5,6 +5,7 @@ import { GameConfig } from '../types';
 interface NumberBallProps {
   number: number;
   isSelected: boolean;
+  isFixed?: boolean; // NOVO: Prop para indicar dezena fixa
   isRecentResult?: boolean;
   onClick: (num: number) => void;
   disabled?: boolean;
@@ -16,6 +17,7 @@ interface NumberBallProps {
 const NumberBall: React.FC<NumberBallProps> = ({ 
   number, 
   isSelected, 
+  isFixed = false,
   isRecentResult, 
   onClick, 
   disabled,
@@ -29,7 +31,7 @@ const NumberBall: React.FC<NumberBallProps> = ({
     : "w-full h-9 sm:h-10 text-sm font-bold";
 
   // Base styles
-  const baseClasses = `${baseSize} rounded-[4px] flex items-center justify-center transition-all duration-150 border select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900`;
+  const baseClasses = `${baseSize} rounded-[4px] flex items-center justify-center transition-all duration-150 border select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 relative`;
   
   // Dynamic styles based on theme
   const style: React.CSSProperties = {};
@@ -40,6 +42,14 @@ const NumberBall: React.FC<NumberBallProps> = ({
       style.borderColor = 'transparent';
       style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.3)';
       style.transform = 'scale(0.95)';
+      
+      // Estilo específico para FIXA
+      if (isFixed) {
+          style.backgroundColor = '#d97706'; // Amber 600
+          style.borderColor = '#fbbf24'; // Amber 400
+          style.borderWidth = '2px';
+          style.boxShadow = '0 0 10px rgba(251, 191, 36, 0.4)';
+      }
   } else {
       style.backgroundColor = 'white';
       style.color = '#334155'; // slate-700
@@ -76,7 +86,7 @@ const NumberBall: React.FC<NumberBallProps> = ({
       onClick={() => onClick(number)}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      aria-label={`Número ${label || number}, ${isSelected ? 'selecionado' : 'não selecionado'}`}
+      aria-label={`Número ${label || number}, ${isSelected ? (isFixed ? 'fixo' : 'selecionado') : 'não selecionado'}`}
       aria-pressed={isSelected}
       className={`${baseClasses} ${!isSelected ? 'hover:bg-slate-50' : ''} ${recentResultClasses} active:scale-90`}
       style={style}
@@ -85,7 +95,14 @@ const NumberBall: React.FC<NumberBallProps> = ({
         {label !== undefined ? label : number.toString().padStart(2, '0')}
       </span>
       
-      {isSelected && (
+      {/* Indicador de Fixa (Cadeado) */}
+      {isFixed && isSelected && (
+          <span className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-yellow-900 rounded-full w-4 h-4 flex items-center justify-center text-[8px] shadow-sm z-20 border border-yellow-200">
+             🔒
+          </span>
+      )}
+      
+      {isSelected && !isFixed && (
         <span className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
            <svg viewBox="0 0 24 24" className="w-full h-full p-1" fill="none" stroke="currentColor" strokeWidth="3">
              <path d="M18 6L6 18M6 6l12 12" />

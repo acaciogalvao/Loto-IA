@@ -8,12 +8,15 @@ interface TicketNumbersProps {
   resultNumbers?: Set<number>;
 }
 
-const TicketNumbers: React.FC<TicketNumbersProps> = ({ numbers, activeGame, resultNumbers }) => {
-  const isFederal = activeGame.id === 'federal';
+const TicketNumbers: React.FC<TicketNumbersProps> = ({ 
+  numbers, 
+  activeGame, 
+  resultNumbers
+}) => {
   const isSuperSete = activeGame.id === 'supersete';
 
-  // Renderização Federal (Texto)
-  if (isFederal) {
+  // Renderização Federal (Texto Simples)
+  if (activeGame.id === 'federal') {
     return (
         <div className="font-mono text-xl font-bold text-slate-200 tracking-[0.3em] pl-1 drop-shadow-md">
             {numbers[0].toString()}
@@ -26,17 +29,7 @@ const TicketNumbers: React.FC<TicketNumbersProps> = ({ numbers, activeGame, resu
         {numbers.map(n => {
             const isHit = resultNumbers && resultNumbers.has(n);
             
-            // Estilos para bolinha
-            // Hit: Gradiente Dourado/Verde (dependendo do jogo) ou cor Primária
-            // Miss: Slate Dark but VISIBLE (no longer semi-transparent)
-            
-            const hitStyle = {
-                backgroundColor: isHit ? '#10b981' : 'transparent', // Emerald 500
-                color: isHit ? 'white' : '#cbd5e1', // Slate 300 for misses (brighter)
-                borderColor: isHit ? '#059669' : '#475569', // Emerald 600 vs Slate 600
-                boxShadow: isHit ? '0 0 8px rgba(16, 185, 129, 0.4)' : 'none'
-            };
-
+            // Estilo específico para Super Sete (Coluna/Valor)
             if (isSuperSete) {
                 const colIndex = Math.floor(n / 10) + 1;
                 const val = n % 10;
@@ -44,8 +37,7 @@ const TicketNumbers: React.FC<TicketNumbersProps> = ({ numbers, activeGame, resu
                     <div key={n} className="flex flex-col items-center">
                         <span className={`text-[7px] font-bold uppercase mb-0.5 ${isHit ? 'text-emerald-400' : 'text-slate-500'}`}>Col {colIndex}</span>
                         <div 
-                            className={`w-6 h-7 flex items-center justify-center rounded text-xs font-bold border transition-colors`}
-                            style={hitStyle}
+                            className={`w-6 h-7 flex items-center justify-center rounded text-xs font-bold border transition-colors ${isHit ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-800 text-slate-300 border-slate-600'}`}
                         >
                             {val}
                         </div>
@@ -53,20 +45,17 @@ const TicketNumbers: React.FC<TicketNumbersProps> = ({ numbers, activeGame, resu
                 );
             }
 
+            // Estilo Padrão (Bolinhas)
             return (
                 <div 
                     key={n} 
-                    className={`w-8 h-8 flex items-center justify-center rounded-full border text-xs font-bold transition-all ${isHit ? 'scale-110 z-10' : ''}`}
-                    style={isHit ? {
-                        background: `linear-gradient(135deg, ${activeGame.theme.primary}, ${activeGame.theme.secondary})`,
-                        borderColor: 'white',
-                        color: 'white',
-                        boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
-                    } : {
-                        background: '#1e293b', // Slate 800 Solid (Visible)
-                        borderColor: '#334155', // Slate 700 (Defined Border)
-                        color: '#e2e8f0' // Slate 200 (High Contrast Text)
-                    }}
+                    className={`
+                        w-8 h-8 flex items-center justify-center rounded-full border text-xs font-bold shadow-sm transition-all
+                        ${isHit 
+                            ? 'bg-emerald-600 text-white border-emerald-500 scale-110 z-10 shadow-emerald-900/50' 
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }
+                    `}
                 >
                     {n.toString().padStart(2, '0')}
                 </div>

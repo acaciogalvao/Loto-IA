@@ -4,12 +4,18 @@ import { GameConfig, AppStatus, AnalysisResult, TrendResult } from '../types';
 import { DEFAULT_GAME } from '../utils/gameConfig';
 import { vibrate } from '../utils/uiUtils';
 import { generateSmartPatternGames, generateReducedClosing, generateMathematicalClosing } from '../utils/lotteryLogic';
-import { getAiSuggestions, analyzeClosing, getLotteryTrends } from '../services/geminiService';
+import { getAiSuggestions, analyzeClosing } from '../services/geminiService';
 
 export type ClosingMethod = 'reduced' | 'smart_pattern' | 'guaranteed' | 'free_mode';
 
 export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const [selectedNumbers, setSelectedNumbers] = useState<Set<number>>(new Set());
+  const [fixedNumbers, setFixedNumbers] = useState<Set<number>>(new Set());
+  
+  // States para controles avançados
+  const [isFixMode, setIsFixMode] = useState(false);
+  const [targetFixedCount, setTargetFixedCount] = useState<number>(0); 
+  
   const [generatedGames, setGeneratedGames] = useState<number[][]>([]);
   const [generatedHistory, setGeneratedHistory] = useState<Set<string>>(new Set()); 
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
@@ -58,12 +64,9 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   useEffect(() => {
     handleClear();
     setGameSize(activeGame.minSelection);
-    
-    // Carregar tendências ao mudar de jogo
-    if (latestResult) {
-        getLotteryTrends(activeGame.name, latestResult.dezenas).then(setTrends);
-    }
-  }, [activeGame.id, latestResult]);
+    setTargetFixedCount(0);
+    setIsFixMode(false);
+  }, [activeGame.id]);
 
   useEffect(() => {
     if (closingMethod === 'free_mode') {
@@ -71,25 +74,52 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     }
   }, [closingMethod]);
 
-  const toggleNumber = (num: number, notify: (msg: string, type: 'info') => void) => {
+  const toggleNumber = (num: number, _isFixModeIgnored: boolean, notify: (msg: string, type: 'info') => void) => {
     vibrate(8); 
     const newSelection = new Set(selectedNumbers);
-    if (newSelection.has(num)) {
-      newSelection.delete(num);
+    const newFixed = new Set(fixedNumbers);
+
+    if (isFixMode) {
+        if (newFixed.has(num)) {
+            newFixed.delete(num);
+            newSelection.delete(num); 
+        } else {
+            // Verifica limites
+            if (targetFixedCount > 0 && newFixed.size >= targetFixedCount) {
+                notify(`Você já definiu as ${targetFixedCount} fixas necessárias.`, 'info');
+                return;
+            }
+            const maxFixedAllowed = Math.max(1, gameSize - 1);
+            if (newFixed.size >= maxFixedAllowed) {
+                notify(`Máximo de ${maxFixedAllowed} fixas permitido.`, 'info');
+                return;
+            }
+
+            newFixed.add(num);
+            newSelection.add(num);
+        }
     } else {
-      if (newSelection.size >= activeGame.maxSelection) {
-          notify(`Máximo de ${activeGame.maxSelection} números.`, 'info');
-          return;
-      }
-      newSelection.add(num);
+        if (newSelection.has(num)) {
+            newSelection.delete(num);
+            if (newFixed.has(num)) newFixed.delete(num);
+        } else {
+            if (newSelection.size >= activeGame.maxSelection) {
+                notify(`Máximo de ${activeGame.maxSelection} números.`, 'info');
+                return;
+            }
+            newSelection.add(num);
+        }
     }
+
     setSelectedNumbers(newSelection);
+    setFixedNumbers(newFixed);
     setGeneratedHistory(new Set()); 
   };
 
   const handleClear = () => {
     vibrate(20);
     setSelectedNumbers(new Set());
+    setFixedNumbers(new Set()); 
     setGeneratedGames([]);
     setGeneratedHistory(new Set());
     setAnalysis(null);
@@ -98,10 +128,9 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     setLoadingProgress(0);
     setGameSize(activeGame.minSelection); 
     setClosingMethod('smart_pattern');
-    setSelectedTeam(null); // Resetar time
+    setSelectedTeam(null);
   };
   
-  // NOVO: Função para remover jogos específicos (para filtros)
   const removeGames = (indicesToRemove: number[]) => {
       const setIndices = new Set(indicesToRemove);
       const newGames = generatedGames.filter((_, idx) => !setIndices.has(idx));
@@ -112,6 +141,15 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
   const handleGameSizeChangeWithAutoSelect = (newSize: number, notify: (msg: string, type: 'info' | 'success') => void) => {
       vibrate(10);
       setGameSize(newSize);
+      
+      if (fixedNumbers.size >= newSize) {
+          const newFixed = new Set(Array.from(fixedNumbers).slice(0, newSize - 1));
+          setFixedNumbers(newFixed);
+      }
+      if (targetFixedCount >= newSize) {
+          setTargetFixedCount(0);
+      }
+
       setGeneratedHistory(new Set()); 
       notify(`Tamanho alterado para ${newSize}`, 'info');
   };
@@ -132,6 +170,7 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
         setGameSize(numsToSet.length);
     }
     setSelectedNumbers(new Set(numsToSet));
+    setFixedNumbers(new Set()); 
     setGeneratedHistory(new Set());
     notify(`${numsToSet.length} números importados!`, 'success');
   };
@@ -143,64 +182,52 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     
     const limit = closingMethod === 'free_mode' ? 1 : (Number(generationLimit) || 10);
 
-    // Usa setTimeout para sair da Call Stack atual e permitir que o UI renderize o estado 'GENERATING'
     setTimeout(async () => {
         try {
-            let finalGames: number[][] = [];
             const selectedArray = Array.from(selectedNumbers) as number[];
+            const fixedArray = Array.from(fixedNumbers) as number[];
             
-            let fixedNumbers: number[] = [];
             let poolNumbers: number[] = [];
-            let effectiveSize = gameSize;
-
-            if (selectedArray.length > 0) {
-                if (selectedArray.length < gameSize) {
-                    fixedNumbers = [...selectedArray];
-                    poolNumbers = allNumbers.filter(n => !selectedNumbers.has(n));
-                    effectiveSize = gameSize - selectedArray.length;
-                } else {
-                    fixedNumbers = [];
-                    poolNumbers = [...selectedArray];
-                    effectiveSize = gameSize;
-                }
+            
+            if (selectedArray.length > gameSize) {
+                poolNumbers = selectedArray.filter(n => !fixedNumbers.has(n));
             } else {
-                fixedNumbers = [];
-                poolNumbers = [...allNumbers];
-                effectiveSize = gameSize;
+                poolNumbers = allNumbers.filter(n => !fixedNumbers.has(n));
             }
 
             const currentHistory = new Set<string>(generatedHistory);
 
-            // Definição da função de geração em lote ASSÍNCRONA
             const generateBatch = async (pool: number[], qty: number, method: ClosingMethod, historyToExclude: Set<string>) => {
                 if (qty <= 0) return [];
-                
                 const progressCallback = (p: number) => setLoadingProgress(p);
 
                 if (method === 'smart_pattern') {
                     const prevResult = latestResult ? latestResult.dezenas.map((d: string) => parseInt(d)) : undefined;
-                    return await generateSmartPatternGames(pool, qty, effectiveSize, activeGame, prevResult, historyToExclude, progressCallback);
+                    return await generateSmartPatternGames(pool, qty, gameSize, activeGame, prevResult, historyToExclude, progressCallback, fixedArray);
                 } 
                 else if (method === 'reduced') {
-                    const guarantee = Math.max(2, effectiveSize - 1);
-                    return await generateReducedClosing(pool, effectiveSize, guarantee, qty, historyToExclude, progressCallback);
+                    const guarantee = Math.max(2, gameSize - 2); 
+                    return await generateReducedClosing(pool, gameSize, guarantee, qty, historyToExclude, progressCallback, fixedArray);
                 } 
                 else if (method === 'guaranteed') {
-                    return await generateMathematicalClosing(pool, effectiveSize, qty, historyToExclude, progressCallback);
+                    return await generateMathematicalClosing(pool, gameSize, qty, historyToExclude, progressCallback, fixedArray);
                 } 
                 else {
-                    // Modo Livre (Simplificado, não precisa de worker complexo)
                     const games = [];
                     const uniqueSet = new Set<string>();
                     let attempts = 0;
                     const maxAttempts = qty * 500;
+                    const neededRandom = gameSize - fixedArray.length;
+
                     while(games.length < qty && attempts < maxAttempts) {
                          attempts++;
                          const shuffled = [...pool].sort(() => 0.5 - Math.random());
-                         const game = shuffled.slice(0, effectiveSize).sort((a,b)=>a-b);
-                         const sig = JSON.stringify(game);
+                         const randomPart = shuffled.slice(0, neededRandom);
+                         const fullGame = [...fixedArray, ...randomPart].sort((a,b)=>a-b);
+                         
+                         const sig = JSON.stringify(fullGame);
                          if(!uniqueSet.has(sig) && !historyToExclude.has(sig)) {
-                             games.push(game);
+                             games.push(fullGame);
                              uniqueSet.add(sig);
                          }
                     }
@@ -208,67 +235,24 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
                 }
             };
 
-            // 1. Geração Principal
-            finalGames = await generateBatch(poolNumbers, limit, closingMethod, currentHistory);
+            let finalGames = await generateBatch(poolNumbers, limit, closingMethod, currentHistory);
 
-            // 2. Fallback de Preenchimento
-            if (finalGames.length < limit && closingMethod !== 'free_mode') {
+            if (finalGames.length < limit) {
                  const tempHistory = new Set(currentHistory);
                  finalGames.forEach(g => tempHistory.add(JSON.stringify(g)));
                  const needed = limit - finalGames.length;
-                 const extendedPool = [...allNumbers];
-                 const supplement = await generateBatch(extendedPool, needed, closingMethod, tempHistory);
-                 finalGames = [...finalGames, ...supplement];
-            } else if (finalGames.length < limit && closingMethod === 'free_mode') {
-                 const needed = limit - finalGames.length;
-                 const extendedPool = [...allNumbers];
-                 const tempHistory = new Set(currentHistory);
-                 finalGames.forEach(g => tempHistory.add(JSON.stringify(g)));
+                 const extendedPool = allNumbers.filter(n => !fixedNumbers.has(n));
                  const supplement = await generateBatch(extendedPool, needed, closingMethod, tempHistory);
                  finalGames = [...finalGames, ...supplement];
             }
 
-            // Pós-Processamento
-            let assembledGames = finalGames.map(g => {
-                return [...fixedNumbers, ...g].sort((a, b) => a - b);
-            });
-            
-            const uniqueSet = new Set<string>();
-            assembledGames = assembledGames.filter(g => {
-                const s = JSON.stringify(g);
-                if(uniqueSet.has(s)) return false;
-                uniqueSet.add(s);
-                return true;
-            });
-
-            if (assembledGames.length > limit) {
-                 assembledGames = assembledGames.slice(0, limit);
-            }
-            
-            // Loop Final de Segurança
-            let loopSafety = 0;
-            const allowFill = closingMethod !== 'free_mode' || assembledGames.length === 0;
-            while (assembledGames.length < limit && allowFill && loopSafety < 1000) {
-                 loopSafety++;
-                 const shuffled = [...allNumbers].sort(() => 0.5 - Math.random());
-                 const fullGame = shuffled.slice(0, gameSize).sort((a, b) => a - b);
-                 const s = JSON.stringify(fullGame);
-                 if (!uniqueSet.has(s) && !currentHistory.has(s)) {
-                    assembledGames.push(fullGame);
-                    uniqueSet.add(s);
-                 }
-            }
-
-            setGeneratedGames(assembledGames);
-            
+            setGeneratedGames(finalGames);
             const newHistory = new Set(currentHistory);
-            assembledGames.forEach(g => newHistory.add(JSON.stringify(g)));
+            finalGames.forEach(g => newHistory.add(JSON.stringify(g)));
             setGeneratedHistory(newHistory);
             
-            // AI Analysis of the generated batch
-            if (assembledGames.length > 0) {
-                 // Non-blocking analysis
-                 analyzeClosing(selectedArray, assembledGames.length).then(aiAnalysis => {
+            if (finalGames.length > 0) {
+                 analyzeClosing(selectedArray, finalGames.length).then(aiAnalysis => {
                       setAnalysis(aiAnalysis);
                  });
             } else {
@@ -281,7 +265,7 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
             
             setStatus(AppStatus.SUCCESS);
             setLoadingProgress(100);
-            notify(`${assembledGames.length} jogos gerados!`, 'success');
+            notify(`${finalGames.length} jogos gerados!`, 'success');
 
         } catch (error) {
             console.error("Erro na geração:", error);
@@ -297,26 +281,27 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
     setLoadingProgress(0);
     
     const progressInterval = setInterval(() => {
-        setLoadingProgress(prev => {
-            if (prev >= 90) return prev; 
-            return prev + Math.floor(Math.random() * 10) + 2;
-        });
+        setLoadingProgress(prev => (prev >= 90 ? prev : prev + 10));
     }, 250);
 
     try {
         const currentSelArray = Array.from(selectedNumbers) as number[];
+        const fixedArray = Array.from(fixedNumbers) as number[];
+        
         const suggestion = await getAiSuggestions(
             activeGame.name, 
             activeGame.minSelection, 
             activeGame.totalNumbers,
-            currentSelArray // Pass context
+            currentSelArray,
+            fixedArray 
         );
         
         clearInterval(progressInterval);
         setLoadingProgress(100);
 
         if (suggestion && suggestion.length > 0) {
-            setSelectedNumbers(new Set(suggestion));
+            const newSel = new Set([...fixedArray, ...suggestion]);
+            setSelectedNumbers(newSel);
             setGeneratedHistory(new Set()); 
             notify("Sugestão de IA aplicada!", 'success');
         } else {
@@ -336,6 +321,11 @@ export const useGameLogic = (activeGame: GameConfig, latestResult: any) => {
 
   return {
     selectedNumbers,
+    fixedNumbers,
+    isFixMode,
+    setIsFixMode,
+    targetFixedCount,
+    setTargetFixedCount,
     generatedGames,
     setGeneratedGames,
     removeGames,
