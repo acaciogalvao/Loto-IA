@@ -1,6 +1,6 @@
 
 import { LotteryResult, PastGameResult, PrizeEntry } from '../types';
-import { getStoredResults, saveStoredResults } from './storageService';
+import { getStoredResults, saveStoredResults, getLatestStoredResult } from './storageService';
 import { supabase } from './supabaseClient'; // Ensure supabase is imported here if used directly, or logic remains in storageService
 
 const API_URL = 'https://api.guidi.dev.br/loteria';
@@ -96,13 +96,49 @@ export const fetchLatestResult = async (gameSlug: string): Promise<LotteryResult
   try {
     const response = await fetchWithRetry(`${API_URL}/${gameSlug}/ultimo`);
     if (!response.ok) {
-        console.warn(`API responded with status: ${response.status}`);
         throw new Error('Network response was not ok');
     }
     const data = await response.json();
-    return mapApiToResult(data, gameSlug);
+    const result = mapApiToResult(data, gameSlug);
+    
+    // Save to DB (Fire & Forget) para criar cache para outros usuários
+    const pastResult: PastGameResult = {
+        concurso: result.concurso,
+        data: result.data,
+        dezenas: result.dezenas,
+        premiacoes: result.premiacoes,
+        valorAcumulado: result.valorAcumulado,
+        valorEstimadoProximoConcurso: result.valorEstimadoProximoConcurso,
+        valorArrecadado: result.valorArrecadado,
+        timeCoracao: result.timeCoracao
+    };
+    saveStoredResults(gameSlug, [pastResult]);
+
+    return result;
   } catch (error) {
-    console.error("Erro ao buscar último resultado (Possível problema de CORS ou API fora do ar):", error);
+    console.warn("API indisponível, tentando cache do banco...", error);
+    
+    // Fallback: DB/Local (Garante que carregue algo se a API falhar)
+    const dbResult = await getLatestStoredResult(gameSlug);
+    
+    if (dbResult) {
+        return {
+            concurso: dbResult.concurso,
+            data: dbResult.data,
+            dezenas: dbResult.dezenas,
+            acumulou: false, // Dado impreciso no histórico
+            ganhadores15: 0, 
+            proximoConcurso: dbResult.concurso + 1,
+            dataProximoConcurso: 'Aguardando',
+            valorEstimadoProximoConcurso: dbResult.valorEstimadoProximoConcurso || 0,
+            valorAcumuladoProximoConcurso: 0,
+            valorAcumulado: dbResult.valorAcumulado || 0,
+            valorAcumuladoEspecial: 0,
+            valorArrecadado: dbResult.valorArrecadado || 0,
+            premiacoes: dbResult.premiacoes,
+            timeCoracao: dbResult.timeCoracao
+        };
+    }
     return null;
   }
 };
@@ -154,8 +190,8 @@ const fetchFromApiBatch = async (
     let completed = 0;
     const total = concursos.length;
 
-    // PERFORMANCE: Aumentado para 80 para velocidade extrema
-    const CHUNK_SIZE = 80; 
+    // PERFORMANCE: Ajustado para 50 para equilíbrio entre velocidade e estabilidade
+    const CHUNK_SIZE = 50; 
     
     for (let i = 0; i < concursos.length; i += CHUNK_SIZE) {
         const chunk = concursos.slice(i, i + CHUNK_SIZE);

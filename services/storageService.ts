@@ -37,7 +37,8 @@ const updateLocalBatchWithNewGames = (
     userId: string, 
     gameType: string, 
     targetConcurso: number, 
-    gamesInput: { numbers: number[], gameNumber: number, team?: string }[]
+    gamesInput: { numbers: number[], gameNumber: number, team?: string }[],
+    knownBatchId?: string // Optional: use cloud ID if known
 ): SavedBetBatch[] => {
     const batches = getLocalBatches();
     const existingIndex = batches.findIndex(b => b.targetConcurso === targetConcurso && b.gameType === gameType);
@@ -46,7 +47,7 @@ const updateLocalBatchWithNewGames = (
     const newGames = gamesInput.map((g, i) => ({
         id: crypto.randomUUID(),
         numbers: g.numbers,
-        gameNumber: g.gameNumber, // Será ajustado se for append
+        gameNumber: g.gameNumber, 
         team: g.team
     }));
 
@@ -55,6 +56,11 @@ const updateLocalBatchWithNewGames = (
         const batch = batches[existingIndex];
         const startNumber = batch.games.length + 1;
         
+        // Se descobrirmos o ID real da nuvem, atualizamos o local
+        if (knownBatchId && batch.id !== knownBatchId) {
+            batch.id = knownBatchId;
+        }
+
         // Ajusta numero dos novos jogos
         const adjustedGames = newGames.map((g, i) => ({ ...g, gameNumber: startNumber + i }));
         
@@ -63,7 +69,7 @@ const updateLocalBatchWithNewGames = (
     } else {
         // Cria novo lote
         const newBatch: SavedBetBatch = {
-            id: crypto.randomUUID(),
+            id: knownBatchId || crypto.randomUUID(),
             createdAt: new Date().toLocaleDateString('pt-BR'),
             targetConcurso,
             gameType,
@@ -96,29 +102,82 @@ const mapDatabaseToBatch = (dbBatches: any[]): SavedBetBatch[] => {
 
 export const getSavedBets = async (): Promise<SavedBetBatch[]> => {
   const userId = getUserId();
-  
+  let cloudBatches: SavedBetBatch[] = [];
+  let errorOccurred = false;
+
   try {
-    // Tenta buscar da Nuvem
+    // Tenta buscar da Nuvem com join explícito
     const { data, error } = await supabase
         .from('batches')
-        .select(`*, games (*)`)
+        .select(`*, games (*)`) 
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
     if (error) throw error;
     
-    const cloudBatches = mapDatabaseToBatch(data || []);
-    
-    // Se deu certo, atualiza o backup local
-    if (cloudBatches.length > 0) {
-        saveLocalBatches(cloudBatches);
-    } 
-    
-    return cloudBatches;
+    cloudBatches = mapDatabaseToBatch(data || []);
   } catch (error) {
-    console.warn("Supabase indisponível ou tabela inexistente. Usando backup local.", error);
-    return getLocalBatches();
+    console.warn("Supabase indisponível ou erro na busca. Usando backup local.", error);
+    errorOccurred = true;
   }
+
+  // Busca Local
+  const localBatches = getLocalBatches();
+
+  if (errorOccurred) {
+      return localBatches;
+  }
+
+  // --- MERGE INTELIGENTE (Cloud + Local) ---
+  // Prioriza Cloud, mas mantém itens locais que não existem na nuvem (offline created)
+  
+  const batchMap = new Map<string, SavedBetBatch>();
+  
+  // 1. Adiciona Cloud (Fonte da verdade)
+  cloudBatches.forEach(b => batchMap.set(b.id, b));
+
+  // 2. Adiciona Local se não existir (preserva dados offline)
+  localBatches.forEach(b => {
+      // Verifica por ID
+      if (!batchMap.has(b.id)) {
+          // Verifica se já existe um lote para este concurso/tipo vindo da nuvem (para evitar duplicidade visual)
+          const duplicateCloud = cloudBatches.find(cb => cb.targetConcurso === b.targetConcurso && cb.gameType === b.gameType);
+          
+          if (duplicateCloud) {
+              // Se existe na nuvem mas ID é diferente, merge manual dos jogos
+              // (Isso acontece se salvou offline, gerou ID local, e depois baixou da nuvem com ID real)
+              const existingGamesSig = new Set(duplicateCloud.games.map(g => JSON.stringify(g.numbers.sort((x,y)=>x-y))));
+              const newLocalGames = b.games.filter(g => !existingGamesSig.has(JSON.stringify(g.numbers.sort((x,y)=>x-y))));
+              
+              if (newLocalGames.length > 0) {
+                  // Adiciona os jogos locais que faltam ao lote da nuvem (apenas em memória/local)
+                  duplicateCloud.games = [...duplicateCloud.games, ...newLocalGames].sort((a,b) => a.gameNumber - b.gameNumber);
+                  batchMap.set(duplicateCloud.id, duplicateCloud);
+              }
+          } else {
+              // Se não existe na nuvem de jeito nenhum, adiciona o lote local inteiro
+              batchMap.set(b.id, b);
+          }
+      } else {
+          // Se existe o ID, verifica se o local tem mais jogos (falha de sync anterior)
+          const cloudVersion = batchMap.get(b.id)!;
+          if (cloudVersion.games.length === 0 && b.games.length > 0) {
+              batchMap.set(b.id, b); // Fallback: Local tem dados, nuvem veio vazia (erro de join?)
+          }
+      }
+  });
+
+  const merged = Array.from(batchMap.values()).sort((a, b) => {
+      // Sort por data de criação (desc) - converte string pt-BR para date object de forma segura
+      const dateA = a.createdAt.split('/').reverse().join('-');
+      const dateB = b.createdAt.split('/').reverse().join('-');
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+  });
+
+  // Atualiza backup local com o estado consolidado
+  saveLocalBatches(merged);
+  
+  return merged;
 };
 
 export const saveBets = async (
@@ -130,8 +189,12 @@ export const saveBets = async (
   
   if (gamesInput.length === 0) return await getSavedBets();
 
+  // 1. SALVAMENTO OTIMISTA (Local)
+  // Garante feedback imediato na UI
+  updateLocalBatchWithNewGames(userId, gameType, targetConcurso, gamesInput);
+
   try {
-      // 1. Tenta salvar na Nuvem
+      // 2. Tenta salvar na Nuvem
       const { data: existingBatch, error: findError } = await supabase
           .from('batches')
           .select('id')
@@ -140,7 +203,6 @@ export const saveBets = async (
           .eq('target_concurso', targetConcurso)
           .single();
       
-      // PGRST116 = JSON object requested, multiple (or no) rows returned. (No rows = ok here)
       if (findError && findError.code !== 'PGRST116') throw findError;
 
       let batchId = existingBatch?.id;
@@ -160,6 +222,9 @@ export const saveBets = async (
           batchId = newBatch.id;
       }
 
+      // Atualiza local com o ID real da nuvem para alinhar
+      updateLocalBatchWithNewGames(userId, gameType, targetConcurso, [], batchId);
+
       const gamesPayload = gamesInput.map(g => ({
           batch_id: batchId,
           numbers: [...g.numbers].sort((a, b) => a - b),
@@ -173,12 +238,13 @@ export const saveBets = async (
 
       if (gamesError) throw gamesError;
 
+      // 3. Busca estado consolidado
       return await getSavedBets();
 
   } catch (error) {
-      console.error("Erro ao salvar na nuvem (Possível falta de tabela 'batches'). Salvando localmente.", error);
-      // FALLBACK: Salva localmente se a nuvem falhar
-      return updateLocalBatchWithNewGames(userId, gameType, targetConcurso, gamesInput);
+      console.error("Erro ao salvar na nuvem. Mantendo cópia local.", error);
+      // Retorna o estado local (que já foi atualizado no passo 1)
+      return getLocalBatches();
   }
 };
 
@@ -186,19 +252,15 @@ export const deleteBatch = async (batchId: string): Promise<SavedBetBatch[]> => 
   try {
       // Tenta deletar da nuvem
       await supabase.from('batches').delete().eq('id', batchId);
-      
-      // Deleta do local também
-      const local = getLocalBatches().filter(b => b.id !== batchId);
-      saveLocalBatches(local);
-
-      return await getSavedBets();
   } catch (error) {
       console.error("Erro ao deletar lote (nuvem):", error);
-      // Fallback local
-      const local = getLocalBatches().filter(b => b.id !== batchId);
-      saveLocalBatches(local);
-      return local;
   }
+
+  // Deleta do local sempre (Optimistic Delete)
+  const local = getLocalBatches().filter(b => b.id !== batchId);
+  saveLocalBatches(local);
+
+  return local; // Retorna estado local limpo imediatamente
 };
 
 export const deleteGame = async (batchId: string, gameId: string): Promise<SavedBetBatch[]> => {
@@ -212,23 +274,21 @@ export const deleteGame = async (batchId: string, gameId: string): Promise<Saved
       if (count === 0) {
           await supabase.from('batches').delete().eq('id', batchId);
       }
-
-      return await getSavedBets();
   } catch (error) {
       console.error("Erro ao deletar jogo (nuvem):", error);
-      
-      // Fallback Local
-      const batches = getLocalBatches();
-      const batchIdx = batches.findIndex(b => b.id === batchId);
-      if (batchIdx >= 0) {
-          batches[batchIdx].games = batches[batchIdx].games.filter(g => g.id !== gameId);
-          if (batches[batchIdx].games.length === 0) {
-              batches.splice(batchIdx, 1);
-          }
-          saveLocalBatches(batches);
-      }
-      return batches;
   }
+
+  // Fallback Local / Optimistic Update
+  const batches = getLocalBatches();
+  const batchIdx = batches.findIndex(b => b.id === batchId);
+  if (batchIdx >= 0) {
+      batches[batchIdx].games = batches[batchIdx].games.filter(g => g.id !== gameId);
+      if (batches[batchIdx].games.length === 0) {
+          batches.splice(batchIdx, 1);
+      }
+      saveLocalBatches(batches);
+  }
+  return batches;
 };
 
 // --- FUNÇÕES DE CACHE DE RESULTADOS OFICIAIS (HÍBRIDO: SUPABASE + LOCALSTORAGE) ---
@@ -296,6 +356,33 @@ export const getStoredResults = async (gameSlug: string, startConcurso: number, 
     });
 
     return Array.from(resultMap.values()).sort((a,b) => b.concurso - a.concurso);
+};
+
+export const getLatestStoredResult = async (gameSlug: string): Promise<PastGameResult | null> => {
+    // 1. Tenta Supabase
+    try {
+        const { data, error } = await supabase
+            .from('lottery_results')
+            .select('content')
+            .eq('game_slug', gameSlug)
+            .order('concurso', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (!error && data) {
+            return data.content as PastGameResult;
+        }
+    } catch (e) {
+        // Silencioso
+    }
+
+    // 2. Fallback Local
+    const local = getLocalResults(gameSlug);
+    if (local.length > 0) {
+        return local[0]; // Assumindo que getLocalResults retorna ordenado desc
+    }
+
+    return null;
 };
 
 export const saveStoredResults = async (gameSlug: string, results: PastGameResult[]) => {
